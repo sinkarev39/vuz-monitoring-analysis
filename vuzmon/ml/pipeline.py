@@ -37,6 +37,7 @@ class PreparedData:
     x: dict                          # часть -> матрица признаков float32
     y: dict                          # часть -> вектор классов
     feature_names: list
+    aux: dict = None                 # часть -> матрица вспомогательных целей (выполнение показателей)
 
     def summary(self) -> dict:
         """Краткая сводка о размерах частей и распределении классов."""
@@ -57,7 +58,8 @@ def prepare_data(frames: dict, include_branches: bool = False) -> PreparedData:
     preprocessor = TabularPreprocessor().fit(parts["train"].features)
     x = {name: preprocessor.transform(part.features) for name, part in parts.items()}
     y = {name: part.target.to_numpy(dtype=np.int64) for name, part in parts.items() if name != "future"}
-    return PreparedData(samples, parts, preprocessor, x, y, preprocessor.feature_names)
+    aux = {name: part.aux_target.to_numpy(dtype=np.float32) for name, part in parts.items() if name != "future"}
+    return PreparedData(samples, parts, preprocessor, x, y, preprocessor.feature_names, aux)
 
 
 # --------------------------------------------------------------------------
@@ -85,7 +87,8 @@ def evaluate(predict, prepared: PreparedData) -> dict:
 def run_mlp(prepared: PreparedData, config: TrainConfig, on_epoch=None) -> dict:
     """Обучает нейронную сеть и оценивает её. Возвращает модель, историю и отчёты."""
     result = trainer.train_classifier(prepared.x["train"], prepared.y["train"],
-                                      prepared.x["val"], prepared.y["val"], config, on_epoch)
+                                      prepared.x["val"], prepared.y["val"], config, on_epoch,
+                                      prepared.aux["train"], prepared.aux["val"])
     reports = evaluate(lambda x: trainer.predict_proba(result.model, x), prepared)
     return {"result": result, "config": config, "val": reports["val"], "test": reports["test"]}
 
@@ -102,12 +105,11 @@ def run_sklearn(prepared: PreparedData, kind: str = "boosting", seed: int = 42) 
     """Классические модели scikit-learn для сравнения: случайный лес и градиентный бустинг."""
     from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
     if kind == "forest":
-        model = RandomForestClassifier(n_estimators=400, min_samples_leaf=2, class_weight="balanced",
-                                       n_jobs=-1, random_state=seed)
+        model = RandomForestClassifier(n_estimators=400, min_samples_leaf=2, n_jobs=-1, random_state=seed)
     else:
         model = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_depth=4,
-                                               l2_regularization=1.0, class_weight="balanced",
-                                               early_stopping=False, random_state=seed)
+                                               l2_regularization=1.0, early_stopping=False,
+                                               random_state=seed)
     model.fit(prepared.x["train"], prepared.y["train"])
     reports = evaluate(model.predict_proba, prepared)
     return {"model": model, "val": reports["val"], "test": reports["test"]}
@@ -124,6 +126,7 @@ SEARCH_SPACE = {
     "batch_size": [32, 64, 128],
     "label_smoothing": [0.0, 0.05, 0.1],
     "activation": ["relu", "gelu"],
+    "aux_weight": [0.0, 1.0, 2.0, 3.0],
 }
 
 

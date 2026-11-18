@@ -92,7 +92,8 @@ def load_model(path) -> LoadedModel:
     config = payload["model_config"]
     if payload["format"] == FORMAT_CLASSIFIER:
         model = MonitoringMLP(config["n_features"], config["n_classes"], tuple(config["hidden"]),
-                              config["dropout"], config["batch_norm"], config["activation"])
+                              config["dropout"], config["batch_norm"], config["activation"],
+                              int(config.get("n_aux", 0)))
     elif payload["format"] == FORMAT_AUTOENCODER:
         model = MonitoringAutoencoder(config["n_features"], tuple(config["hidden"]), config["latent_dim"],
                                       config["dropout"], config["activation"])

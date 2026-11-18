@@ -38,7 +38,8 @@ class TrainConfig:
     epochs: int = 100
     patience: int = 15               # эпох без улучшения до ранней остановки (0 — выключено)
     label_smoothing: float = 0.0     # сглаживание меток
-    class_weighted: bool = True      # веса классов в функции потерь
+    class_weighted: bool = False     # веса классов в функции потерь (повышает полноту редкого класса)
+    aux_weight: float = 2.0          # вес вспомогательной задачи; 0 — обычная однозадачная сеть
     scheduler: str = "plateau"       # none / plateau / cosine
     seed: int = 42
 
@@ -89,9 +90,12 @@ def _make_scheduler(optimizer, config: TrainConfig):
     return None
 
 
-def _loader(features: np.ndarray, targets: np.ndarray, batch_size: int, shuffle: bool, seed: int):
-    """Загрузчик мини-пакетов поверх массивов NumPy."""
-    dataset = TensorDataset(torch.as_tensor(features, dtype=torch.float32), torch.as_tensor(targets))
+def _loader(features: np.ndarray, targets: np.ndarray, batch_size: int, shuffle: bool, seed: int, extra=None):
+    """Загрузчик мини-пакетов поверх массивов NumPy (extra — дополнительные цели)."""
+    tensors = [torch.as_tensor(features, dtype=torch.float32), torch.as_tensor(targets)]
+    if extra is not None:
+        tensors.append(torch.as_tensor(extra, dtype=torch.float32))
+    dataset = TensorDataset(*tensors)
     generator = torch.Generator().manual_seed(seed)
     # Неполный последний пакет из одного объекта ломает пакетную нормализацию — отбрасываем его
     drop_last = shuffle and len(dataset) % batch_size == 1
@@ -105,13 +109,19 @@ def predict_proba(model: nn.Module, features: np.ndarray, batch_size: int = 1024
     parts = []
     tensor = torch.as_tensor(features, dtype=torch.float32)
     for start in range(0, len(tensor), batch_size):
-        parts.append(torch.softmax(model(tensor[start:start + batch_size]), dim=1).numpy())
+        parts.append(model.class_probabilities(tensor[start:start + batch_size]).numpy())
     return np.concatenate(parts) if parts else np.empty((0, model.config["n_classes"]))
 
 
-def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epoch=None) -> TrainResult:
+def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epoch=None,
+                     aux_train=None, aux_val=None) -> TrainResult:
     """
     Обучает MonitoringMLP.
+
+    aux_train, aux_val — вспомогательные цели (выполнение каждого показателя
+    в следующем году). Если они переданы и config.aux_weight > 0, сеть
+    обучается как многозадачная: к перекрёстной энтропии по классам
+    добавляется бинарная перекрёстная энтропия по показателям с весом aux_weight.
 
     on_epoch(record) — необязательная функция, вызываемая после каждой эпохи
     со словарём метрик; если она возвращает False, обучение прерывается.
@@ -120,8 +130,10 @@ def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epo
     y_train = np.asarray(y_train, dtype=np.int64)
     y_val = np.asarray(y_val, dtype=np.int64)
     n_classes = int(max(y_train.max(), y_val.max())) + 1
+    multitask = aux_train is not None and aux_val is not None and config.aux_weight > 0
+    n_aux = int(np.asarray(aux_train).shape[1]) if multitask else 0
     model = MonitoringMLP(x_train.shape[1], n_classes, config.hidden, config.dropout, config.batch_norm,
-                          config.activation)
+                          config.activation, n_aux)
 
     # Веса классов обратно пропорциональны их частоте в обучающей выборке
     weight = None
@@ -130,11 +142,14 @@ def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epo
         weight = torch.as_tensor(len(y_train) / (n_classes * np.maximum(counts, 1.0)), dtype=torch.float32)
     criterion = nn.CrossEntropyLoss(weight=weight, label_smoothing=config.label_smoothing)
     eval_criterion = nn.CrossEntropyLoss(weight=weight)
+    aux_criterion = nn.BCEWithLogitsLoss()
     optimizer = _make_optimizer(model, config)
     scheduler = _make_scheduler(optimizer, config)
-    train_loader = _loader(x_train, y_train, config.batch_size, True, config.seed)
+    train_loader = _loader(x_train, y_train, config.batch_size, True, config.seed,
+                           aux_train if multitask else None)
     x_val_tensor = torch.as_tensor(x_val, dtype=torch.float32)
     y_val_tensor = torch.as_tensor(y_val)
+    aux_val_tensor = torch.as_tensor(aux_val, dtype=torch.float32) if multitask else None
 
     result = TrainResult(model=model)
     best_loss, best_state, epochs_without_gain = float("inf"), None, 0
@@ -143,10 +158,13 @@ def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epo
         # ---------------------------------------------------- обучение
         model.train()
         total_loss, total_correct, total_seen = 0.0, 0, 0
-        for batch_x, batch_y in train_loader:
+        for batch in train_loader:
+            batch_x, batch_y = batch[0], batch[1]
             optimizer.zero_grad()
-            logits = model(batch_x)
+            logits, aux_logits = model.forward_all(batch_x)
             loss = criterion(logits, batch_y)
+            if multitask:
+                loss = loss + config.aux_weight * aux_criterion(aux_logits, batch[2])
             loss.backward()                                   # обратное распространение ошибки
             nn.utils.clip_grad_norm_(model.parameters(), 5.0)  # защита от «взрыва» градиентов
             optimizer.step()
@@ -157,9 +175,11 @@ def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epo
         # ---------------------------------------------------- валидация
         model.eval()
         with torch.no_grad():
-            val_logits = model(x_val_tensor)
+            val_logits, val_aux = model.forward_all(x_val_tensor)
             val_loss = float(eval_criterion(val_logits, y_val_tensor))
-            val_pred = val_logits.argmax(dim=1).numpy()
+            if multitask:
+                val_loss += config.aux_weight * float(aux_criterion(val_aux, aux_val_tensor))
+            val_pred = model.class_probabilities(x_val_tensor).argmax(dim=1).numpy()
         val_scores = metrics.per_class_scores(metrics.confusion_matrix(y_val, val_pred, n_classes))
         record = {
             "epoch": epoch,

@@ -31,7 +31,7 @@ class SoftmaxRegressionGD:
 
     def __init__(self, n_classes: int = 3, learning_rate: float = 0.1, epochs: int = 200,
                  batch_size: int = 128, l2: float = 1e-3, momentum: float = 0.9,
-                 class_weighted: bool = True, seed: int = 42):
+                 class_weighted: bool = False, seed: int = 42):
         self.n_classes = n_classes
         self.learning_rate = learning_rate
         self.epochs = epochs

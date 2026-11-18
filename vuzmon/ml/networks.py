@@ -30,26 +30,57 @@ def _block(in_features: int, out_features: int, activation: str, batch_norm: boo
     return layers
 
 
+# Границы классов по числу выполненных показателей: 0–1, 2–3, 4–5
+COUNT_TO_CLASS = (0, 0, 1, 1, 2, 2)
+
+
+def count_distribution(pass_probabilities: torch.Tensor) -> torch.Tensor:
+    """
+    Распределение числа выполненных показателей по вероятностям выполнения
+    каждого из них (распределение Пуассона — биномиальное).
+
+    Вход:  тензор N x K — вероятности выполнения K показателей;
+    выход: тензор N x (K+1) — вероятности того, что выполнено 0, 1, ..., K.
+    Вычисляется последовательной свёрткой: добавляя очередной показатель,
+    «сдвигаем» распределение на единицу с вероятностью p и оставляем с 1 - p.
+    """
+    n_rows, n_items = pass_probabilities.shape
+    distribution = torch.zeros(n_rows, n_items + 1, dtype=pass_probabilities.dtype)
+    distribution[:, 0] = 1.0
+    for item in range(n_items):
+        p = pass_probabilities[:, item:item + 1]
+        shifted = torch.cat([torch.zeros(n_rows, 1, dtype=distribution.dtype), distribution[:, :-1]], dim=1)
+        distribution = distribution * (1.0 - p) + shifted * p
+    return distribution
+
+
 class MonitoringMLP(nn.Module):
     """
-    Многослойный перцептрон для классификации табличных данных.
+    Многослойный перцептрон для прогноза класса результативности.
 
     Вход:  вектор признаков организации за год t (после предобработки).
-    Выход: логиты трёх классов результативности в году t+1; вероятности
-           получаются применением softmax.
+    Выходы:
+      * основной — логиты трёх классов результативности в году t+1;
+      * вспомогательный (если n_aux > 0) — логиты выполнения каждого из
+        основных показателей в году t+1 (многозадачное обучение).
+    Итоговые вероятности классов — среднее двух оценок: softmax основного
+    выхода и распределения числа выполненных показателей, пересчитанного
+    в классы. Вторая оценка опирается на структуру самой задачи.
     """
 
     def __init__(self, n_features: int, n_classes: int = 3, hidden=(128, 64), dropout: float = 0.3,
-                 batch_norm: bool = True, activation: str = "relu"):
+                 batch_norm: bool = True, activation: str = "relu", n_aux: int = 0):
         super().__init__()
         self.config = {"n_features": n_features, "n_classes": n_classes, "hidden": list(hidden),
-                       "dropout": dropout, "batch_norm": batch_norm, "activation": activation}
+                       "dropout": dropout, "batch_norm": batch_norm, "activation": activation,
+                       "n_aux": n_aux}
         layers, width = [], n_features
         for size in hidden:
             layers += _block(width, size, activation, batch_norm, dropout)
             width = size
         self.body = nn.Sequential(*layers)
         self.head = nn.Linear(width, n_classes)
+        self.aux_head = nn.Linear(width, n_aux) if n_aux > 0 else None
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -60,7 +91,25 @@ class MonitoringMLP(nn.Module):
                 nn.init.zeros_(module.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Логиты классов (основной выход)."""
         return self.head(self.body(x))
+
+    def forward_all(self, x: torch.Tensor):
+        """Оба выхода сети: (логиты классов, логиты выполнения показателей или None)."""
+        hidden = self.body(x)
+        return self.head(hidden), (self.aux_head(hidden) if self.aux_head is not None else None)
+
+    def class_probabilities(self, x: torch.Tensor) -> torch.Tensor:
+        """Итоговые вероятности классов с учётом вспомогательного выхода."""
+        logits, aux_logits = self.forward_all(x)
+        probabilities = torch.softmax(logits, dim=1)
+        if aux_logits is None or aux_logits.shape[1] + 1 != len(COUNT_TO_CLASS):
+            return probabilities
+        counts = count_distribution(torch.sigmoid(aux_logits))
+        structural = torch.zeros_like(probabilities)
+        for count, label in enumerate(COUNT_TO_CLASS):
+            structural[:, label] += counts[:, count]
+        return 0.5 * (probabilities + structural)
 
     def count_parameters(self) -> int:
         """Число обучаемых параметров сети."""
