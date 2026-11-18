@@ -73,8 +73,13 @@ def format_number(value, digits: int = 2) -> str:
     return text.replace(",", " ").replace(".", ",")
 
 
-def create_app(database_url: str = None, testing: bool = False) -> Flask:
-    """Создаёт и настраивает экземпляр веб-приложения."""
+def create_app(database_url: str = None, testing: bool = False, bootstrap_data: bool = True) -> Flask:
+    """
+    Создаёт и настраивает экземпляр веб-приложения.
+
+    bootstrap_data — выполнять ли первичное наполнение (загрузка поставляемого
+    набора данных, регистрация моделей, первый прогноз); в тестах отключается.
+    """
     app = Flask(__name__)
     app.config.update(
         SECRET_KEY="test-secret" if testing else _secret_key(),
@@ -140,6 +145,7 @@ def create_app(database_url: str = None, testing: bool = False) -> Flask:
     for blueprint in (auth_bp, main_bp, data_bp, models_bp, forecast_bp, reports_bp, admin_bp):
         app.register_blueprint(blueprint)
 
-    from webapp.services import bootstrap
-    bootstrap.ensure_default_dataset()
+    if bootstrap_data:
+        from webapp.services import bootstrap
+        bootstrap.ensure_default_dataset()
     return app
