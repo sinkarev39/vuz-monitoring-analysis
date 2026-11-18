@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Модели{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Модели</h1>
+    <p class="lead">Эксперименты по обучению моделей. Рабочая модель прогноза и рабочий автокодировщик используются в разделах «Прогноз» и «Нетипичные профили».</p>
+  </div>
+  <div class="actions"><a class="btn" href="{{ url_for('models.new') }}">Новое обучение</a></div>
+</div>
+
+<div class="card">
+  <h2>Эксперименты</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>№</th><th>Название</th><th>Вид модели</th><th>Состояние</th>
+      <th class="num">Верных ответов, валидация</th><th class="num">Верных ответов, тест</th>
+      <th class="num">Macro-F1, тест</th><th class="num">ROC-AUC, тест</th><th>Запущен</th></tr>
+    {% for row in rows %}
+    {% set e = row.experiment %}
+    <tr>
+      <td>{{ e.id }}</td>
+      <td><a href="{{ url_for('models.detail', experiment_id=e.id) }}">{{ e.name }}</a>
+        {% if e.is_active %}<span class="badge ok">рабочая</span>{% endif %}</td>
+      <td>{{ model_types.get(e.model_type, e.model_type) }}</td>
+      <td><span class="badge {{ 'ok' if e.status == 'done' else ('warn' if e.status == 'running' else ('c0' if e.status == 'failed' else 'off')) }}">{{ status_titles.get(e.status, e.status) }}</span></td>
+      <td class="num">{{ row.val.accuracy|pct if row.val.accuracy is defined else '—' }}</td>
+      <td class="num">{{ row.test.accuracy|pct if row.test.accuracy is defined else '—' }}</td>
+      <td class="num">{{ row.test.macro_f1|num(3) if row.test.macro_f1 is defined else '—' }}</td>
+      <td class="num">{{ row.test.macro_auc|num(3) if row.test.macro_auc is defined else '—' }}</td>
+      <td class="nowrap">{{ e.started_at|dt }}{% if e.author %}<div class="muted small">{{ e.author.login }}</div>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="9" class="muted">Экспериментов пока нет. Нажмите «Новое обучение».</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Сравнение качества</h2>
+    {% if chart %}<div class="chart">{{ chart|safe }}</div>
+    {% else %}<p class="muted">Появится после обучения хотя бы одной модели прогноза.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Загрузить модель из файла</h2>
+    <p class="muted small">Файл с расширением .pt, сохранённый этой системой (кнопка «Скачать файл модели» в карточке эксперимента).
+      Перед регистрацией файл проверяется: подходит ли формат и восстанавливается ли сеть.</p>
+    <form method="post" action="{{ url_for('models.upload') }}" enctype="multipart/form-data">{{ csrf() }}
+      <div class="form-row"><div class="field wide"><label for="file">Файл модели</label>
+        <input type="file" id="file" name="file" accept=".pt" required></div></div>
+      <div class="form-row"><div class="field wide"><label for="name">Название</label>
+        <input type="text" id="name" name="name" maxlength="128" placeholder="например: Модель прошлого года"></div></div>
+      <button class="btn" type="submit">Загрузить модель</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

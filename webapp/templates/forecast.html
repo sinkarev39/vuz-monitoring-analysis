@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge, proba_bar, pager, csrf with context %}
+{% block title %}Прогноз{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Прогноз класса результативности{% if target_year %} на {{ target_year }} год{% endif %}</h1>
+    <p class="lead">Нейронная сеть оценивает, в каком классе окажется каждая головная организация в следующем мониторинге, по данным последнего доступного года.</p>
+  </div>
+  <div class="actions">
+    {% if total %}<a class="btn secondary" href="{{ url_for('reports.forecast_xlsx', **filters) }}">Выгрузить в Excel</a>{% endif %}
+    {% if has_role('admin', 'analyst') %}
+    <form method="post" action="{{ url_for('forecast.build') }}" class="inline">{{ csrf() }}
+      <button class="btn" type="submit">{{ 'Обновить прогноз' if base_year else 'Построить прогноз' }}</button></form>
+    {% endif %}
+  </div>
+</div>
+
+{% if not base_year %}
+<div class="card"><p class="muted">Прогноз ещё не построен.
+  {% if experiment %}Рабочая модель: №{{ experiment.id }} «{{ experiment.name }}». Нажмите «Построить прогноз».
+  {% else %}Сначала обучите или загрузите модель в разделе «Модели».{% endif %}</p></div>
+{% else %}
+<div class="grid c4">
+  {% for name in class_names %}
+  <div class="card kpi"><div class="value">{{ counts[loop.index0] }}</div>
+    <div class="label">{{ class_badge(loop.index0) }}</div>
+    <div class="hint muted">организаций по прогнозу</div></div>
+  {% endfor %}
+  <div class="card kpi"><div class="value">{{ base_year }}</div><div class="label">год исходных данных</div>
+    <div class="hint muted">построен {{ built_at|dt }}{% if experiment %}, модель №{{ experiment.id }}{% endif %}</div></div>
+</div>
+
+<div class="card">
+  <form method="get">
+    <div class="form-row">
+      <div class="field wide"><label for="q">Поиск по названию</label>
+        <input type="search" id="q" name="q" value="{{ filters.get('q', '') }}"></div>
+      <div class="field"><label for="district">Федеральный округ</label>
+        <select id="district" name="district"><option value="">все</option>
+          {% for row in districts %}<option value="{{ row.id }}" {{ 'selected' if filters.get('district') == row.id|string }}>{{ row.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="predicted">Прогноз</label>
+        <select id="predicted" name="predicted"><option value="">любой</option>
+          {% for name in class_names %}<option value="{{ loop.index0 }}" {{ 'selected' if filters.get('predicted') == loop.index0|string }}>{{ name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="change">Изменение класса</label>
+        <select id="change" name="change"><option value="">любое</option>
+          <option value="down" {{ 'selected' if filters.get('change') == 'down' }}>ожидается снижение</option>
+          <option value="up" {{ 'selected' if filters.get('change') == 'up' }}>ожидается рост</option>
+          <option value="same" {{ 'selected' if filters.get('change') == 'same' }}>без изменений</option></select></div>
+      <div class="field"><label for="sort">Сортировка</label>
+        <select id="sort" name="sort">
+          <option value="risk" {{ 'selected' if filters.get('sort', 'risk') == 'risk' }}>по вероятности риска</option>
+          <option value="confidence" {{ 'selected' if filters.get('sort') == 'confidence' }}>наименее уверенные</option>
+          <option value="name" {{ 'selected' if filters.get('sort') == 'name' }}>по названию</option></select></div>
+      <div class="actions"><button class="btn" type="submit">Показать</button>
+        <a class="btn secondary" href="{{ url_for('forecast.index') }}">Сбросить</a></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <p class="muted">Организаций в выборке: <b>{{ total }}</b></p>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Организация</th><th>Регион</th><th>Класс в {{ base_year }}</th><th>Прогноз на {{ target_year }}</th>
+      <th>Вероятности классов</th><th class="num">Зона риска</th><th class="num">Уверенность</th></tr>
+    {% for row in rows %}
+    <tr>
+      <td><a href="{{ url_for('main.university', university_id=row.item.id) }}">{{ row.item.short_name }}</a></td>
+      <td>{{ row.item.region.name }}</td>
+      <td>{{ class_badge(row.current) }}</td>
+      <td>{{ class_badge(row.prediction.predicted_class) }}
+        {% if row.change < 0 %}<span class="fail" title="ожидается снижение класса">▼</span>{% elif row.change > 0 %}<span class="pass" title="ожидается повышение класса">▲</span>{% endif %}</td>
+      <td>{{ proba_bar(row.prediction.probabilities) }}</td>
+      <td class="num">{{ row.prediction.probabilities[0]|pct }}</td>
+      <td class="num">{{ row.prediction.probabilities|max|pct }}</td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="muted">По заданным условиям организаций нет.</td></tr>{% endfor %}
+  </table></div>
+  {{ pager('forecast.index', page, pages, filters) }}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Эксперимент №{{ experiment.id }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>№{{ experiment.id }}. {{ experiment.name }}
+      {% if experiment.is_active %}<span class="badge ok">рабочая</span>{% endif %}</h1>
+    <p class="lead">{{ model_types.get(experiment.model_type, experiment.model_type) }} ·
+      состояние: <b>{{ status_titles.get(experiment.status, experiment.status) }}</b> ·
+      запущен {{ experiment.started_at|dt }}{% if experiment.finished_at %}, завершён {{ experiment.finished_at|dt }}{% endif %}</p>
+  </div>
+  <div class="actions">
+    {% if experiment.status == 'done' %}
+      <a class="btn secondary" href="{{ url_for('reports.experiment_docx', experiment_id=experiment.id) }}">Протокол в Word</a>
+      {% if experiment.model_file %}<a class="btn secondary" href="{{ url_for('models.download', experiment_id=experiment.id) }}">Скачать файл модели</a>{% endif %}
+      {% if can_activate and not experiment.is_active %}
+      <form method="post" action="{{ url_for('models.activate', experiment_id=experiment.id) }}" class="inline">{{ csrf() }}
+        <button class="btn" type="submit">Сделать рабочей</button></form>{% endif %}
+    {% endif %}
+    {% if experiment.status != 'running' and not experiment.is_active %}
+    <form method="post" action="{{ url_for('models.delete', experiment_id=experiment.id) }}" class="inline"
+          data-confirm="Удалить эксперимент и файл модели?">{{ csrf() }}
+      <button class="btn danger" type="submit">Удалить</button></form>{% endif %}
+  </div>
+</div>
+
+{% if experiment.status in ('new', 'running') %}
+<div class="card" data-poll-url="{{ url_for('models.status', experiment_id=experiment.id) }}" data-epochs="{{ epochs }}">
+  <h2>Идёт обучение</h2>
+  <div class="progress"><i style="width: 3%"></i></div>
+  <p class="poll-message muted" style="margin-top:8px">Подготовка данных…</p>
+  <div class="chart" id="live-chart">{{ charts.curves|safe if charts.curves }}</div>
+</div>
+{% elif experiment.status == 'failed' %}
+<div class="flash error"><b>Обучение завершилось ошибкой.</b><br><span class="small">{{ experiment.message }}</span></div>
+{% endif %}
+
+{% if metrics.test %}
+<div class="grid c4">
+  <div class="card kpi"><div class="value">{{ metrics.test.accuracy|pct }}</div><div class="label">доля верных ответов, тест</div>
+    <div class="hint muted">валидация — {{ metrics.val.accuracy|pct }}{% if metrics.persistence %}; наивный прогноз — {{ metrics.persistence.test.accuracy|pct }}{% endif %}</div></div>
+  <div class="card kpi"><div class="value">{{ metrics.test.macro_f1|num(3) }}</div><div class="label">macro-F1, тест</div>
+    <div class="hint muted">сбалансированная точность — {{ metrics.test.balanced_accuracy|pct }}</div></div>
+  <div class="card kpi"><div class="value">{{ metrics.test.macro_auc|num(3) }}</div><div class="label">ROC-AUC, тест</div>
+    <div class="hint muted">{% if metrics.persistence %}наивный прогноз — {{ metrics.persistence.test.macro_auc|num(3) }}{% endif %}</div></div>
+  <div class="card kpi"><div class="value">{{ metrics.test.log_loss|num(3) }}</div><div class="label">логарифмическая потеря, тест</div>
+    <div class="hint muted">{% if metrics.best_epoch %}лучшая эпоха — {{ metrics.best_epoch }} из {{ metrics.epochs_run }}{% endif %}</div></div>
+</div>
+{% elif metrics.threshold is defined %}
+<div class="grid c4">
+  <div class="card kpi"><div class="value">{{ metrics.val_loss|num(4) }}</div><div class="label">ошибка восстановления, валидация</div></div>
+  <div class="card kpi"><div class="value">{{ metrics.threshold|num(3) }}</div><div class="label">порог нетипичности</div></div>
+  <div class="card kpi"><div class="value">{{ metrics.n_clusters }}</div><div class="label">типологических групп</div></div>
+  <div class="card kpi"><div class="value">{{ metrics.n_parameters|num }}</div><div class="label">обучаемых параметров</div>
+    <div class="hint muted">лучшая эпоха — {{ metrics.best_epoch }} из {{ metrics.epochs_run }}</div></div>
+</div>
+{% endif %}
+
+{% if charts.curves and experiment.status not in ('new', 'running') %}
+<div class="card"><h2>Кривые обучения</h2><div class="chart">{{ charts.curves|safe }}</div></div>
+{% endif %}
+
+{% if charts.val or charts.test %}
+<div class="grid c2">
+  {% if charts.val %}<div class="card"><div class="chart">{{ charts.val|safe }}</div></div>{% endif %}
+  {% if charts.test %}<div class="card"><div class="chart">{{ charts.test|safe }}</div></div>{% endif %}
+</div>
+{% endif %}
+
+{% if metrics.test %}
+<div class="grid c2">
+  <div class="card">
+    <h2>Качество по классам (тест)</h2>
+    <table class="data">
+      <tr><th>Класс</th><th class="num">Точность</th><th class="num">Полнота</th><th class="num">F1</th><th class="num">Объектов</th></tr>
+      {% for name in class_names %}
+      <tr><td><span class="badge c{{ loop.index0 }}">{{ name }}</span></td>
+        <td class="num">{{ metrics.test.precision[loop.index0]|pct }}</td><td class="num">{{ metrics.test.recall[loop.index0]|pct }}</td>
+        <td class="num">{{ metrics.test.f1[loop.index0]|num(3) }}</td><td class="num">{{ metrics.test.support[loop.index0] }}</td></tr>
+      {% endfor %}
+    </table>
+    {% if metrics.persistence %}
+    <h3>Сравнение с наивным прогнозом «класс не изменится»</h3>
+    <table class="data">
+      <tr><th>Метрика (тест)</th><th class="num">Модель</th><th class="num">Наивный прогноз</th></tr>
+      <tr><td>Доля верных ответов</td><td class="num">{{ metrics.test.accuracy|pct }}</td><td class="num">{{ metrics.persistence.test.accuracy|pct }}</td></tr>
+      <tr><td>Macro-F1</td><td class="num">{{ metrics.test.macro_f1|num(3) }}</td><td class="num">{{ metrics.persistence.test.macro_f1|num(3) }}</td></tr>
+      <tr><td>ROC-AUC</td><td class="num">{{ metrics.test.macro_auc|num(3) }}</td><td class="num">{{ metrics.persistence.test.macro_auc|num(3) }}</td></tr>
+      <tr><td>Логарифмическая потеря</td><td class="num">{{ metrics.test.log_loss|num(3) }}</td><td class="num">{{ metrics.persistence.test.log_loss|num(3) }}</td></tr>
+    </table>
+    {% endif %}
+  </div>
+  <div class="card">
+    {% if charts.importance %}<div class="chart">{{ charts.importance|safe }}</div>
+    {% else %}<h2>Важность признаков</h2><p class="muted">Рассчитывается для нейронной сети.</p>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Гиперпараметры</h2>
+    <table class="data kv">
+      {% for key, value in params.items() if key != 'best' %}
+      <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+      {% endfor %}
+      {% if metrics.n_parameters %}<tr><td>обучаемых параметров</td><td>{{ metrics.n_parameters|num }}</td></tr>{% endif %}
+      {% if experiment.model_file %}<tr><td>файл модели</td><td><code>{{ experiment.model_file }}</code></td></tr>{% endif %}
+    </table>
+    {% if params.best %}
+    <h3>Лучшая конфигурация подбора</h3>
+    <table class="data kv">{% for key, value in params.best.items() %}<tr><td>{{ key }}</td><td>{{ value }}</td></tr>{% endfor %}</table>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>Данные обучения</h2>
+    {% if metrics.data %}
+    <table class="data">
+      <tr><th>Часть</th><th>Годы</th><th class="num">Объектов</th><th>По классам</th></tr>
+      {% for part, title in (('train', 'обучение'), ('val', 'валидация'), ('test', 'тест'), ('future', 'прогноз')) %}
+      {% if metrics.data[part] %}
+      <tr><td>{{ title }}</td><td>{{ metrics.data[part].years|join(', ') }}</td><td class="num">{{ metrics.data[part].rows }}</td>
+        <td>{% for value in metrics.data[part].classes or [] %}<span class="badge c{{ loop.index0 }}">{{ value }}</span> {% endfor %}</td></tr>
+      {% endif %}{% endfor %}
+    </table>
+    <p class="muted small">Признаков после предобработки: {{ metrics.data.n_features }}. Год объекта — год исходных данных; класс относится к следующему году.</p>
+    {% else %}<p class="muted">Сведения появятся после завершения обучения.</p>{% endif %}
+    {% if experiment.dataset %}<p>Набор данных: <a href="{{ url_for('data.detail', dataset_id=experiment.dataset.id) }}">№{{ experiment.dataset.id }} «{{ experiment.dataset.name }}»</a></p>{% endif %}
+  </div>
+</div>
+
+{% if metrics.trials %}
+<div class="card">
+  <h2>Испытания подбора гиперпараметров</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>№</th><th>Слои</th><th class="num">Dropout</th><th class="num">Шаг</th><th class="num">L2</th><th class="num">Пакет</th>
+      <th class="num">Сглаживание</th><th>Активация</th><th class="num">Вес всп. задачи</th><th class="num">Лучшая эпоха</th>
+      <th class="num">Верных, валидация</th><th class="num">Macro-F1, валидация</th></tr>
+    {% for trial in metrics.trials %}
+    <tr><td>{{ trial.trial }}</td><td>{{ trial.params.hidden|join('-') }}</td><td class="num">{{ trial.params.dropout }}</td>
+      <td class="num">{{ trial.params.learning_rate }}</td><td class="num">{{ trial.params.weight_decay }}</td><td class="num">{{ trial.params.batch_size }}</td>
+      <td class="num">{{ trial.params.label_smoothing }}</td><td>{{ trial.params.activation }}</td><td class="num">{{ trial.params.aux_weight }}</td>
+      <td class="num">{{ trial.best_epoch }}</td><td class="num">{{ trial.val_accuracy|pct }}</td><td class="num"><b>{{ trial.val_macro_f1|num(3) }}</b></td></tr>
+    {% endfor %}
+  </table></div>
+  <p class="muted small">Испытания отсортированы по убыванию macro-F1 на валидации; первая строка — выбранная конфигурация.</p>
+</div>
+{% endif %}
+{% endblock %}

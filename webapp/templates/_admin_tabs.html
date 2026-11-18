@@ -1,0 +1,6 @@
+{# Вкладки панели администратора #}
+<div class="tabs">
+  {% for endpoint, title in tabs %}
+  <a href="{{ url_for(endpoint) }}" class="{{ 'active' if request.endpoint == endpoint or (endpoint == 'admin.users' and request.endpoint == 'admin.user_form') else '' }}">{{ title }}</a>
+  {% endfor %}
+</div>

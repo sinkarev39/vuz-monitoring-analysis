@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Состояние системы{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Администрирование</h1><p class="lead">База данных, файлы и программное окружение.</p></div>
+  <div class="actions">
+    <a class="btn secondary" href="{{ url_for('admin.backup') }}">Резервная копия базы</a>
+    <form method="post" action="{{ url_for('admin.optimize') }}" class="inline" data-confirm="Сжать файл базы данных? Операция может занять до минуты.">{{ csrf() }}
+      <button class="btn secondary" type="submit">Сжать базу данных</button></form>
+  </div>
+</div>
+{% include "_admin_tabs.html" %}
+<div class="grid c2">
+  <div class="card">
+    <h2>Таблицы базы данных <span class="muted small">— СУБД: {{ dialect }}, таблиц: {{ tables|length }}</span></h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>Таблица</th><th class="num">Строк</th></tr>
+      {% for row in tables %}<tr><td><code>{{ row.name }}</code></td><td class="num">{{ row.rows|num }}</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div>
+    <div class="card">
+      <h2>Файлы</h2>
+      <table class="data">
+        <tr><th>Назначение</th><th class="num">Файлов</th><th class="num">Размер, МБ</th></tr>
+        {% for row in folders %}<tr><td>{{ row.title }}<div class="muted small">{{ row.path }}</div></td>
+          <td class="num">{{ row.files|num }}</td><td class="num">{{ (row.size / 1048576)|num(1) }}</td></tr>{% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Программное окружение</h2>
+      <table class="data kv">
+        <tr><td>Версия системы</td><td>{{ version }}</td></tr>
+        <tr><td>Python</td><td>{{ python }}</td></tr>
+        <tr><td>Операционная система</td><td>{{ os_name }}</td></tr>
+        {% for name, value in libraries %}<tr><td>{{ name }}</td><td>{{ value }}</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

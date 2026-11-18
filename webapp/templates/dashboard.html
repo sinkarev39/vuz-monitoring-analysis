@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import class_badge, proba_bar %}
+{% from "_macros.html" import class_badge, proba_bar with context %}
 {% block title %}Обзор{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -20,7 +20,7 @@
     <div class="hint muted">головных — {{ summary.heads|num }}, филиалов — {{ (summary.universities - summary.heads)|num }}</div>
   </div>
   <div class="card kpi">
-    <div class="value">{{ summary.values|num }}</div>
+    <div class="value">{{ summary.values_count|num }}</div>
     <div class="label">значений показателей</div>
     <div class="hint muted">{% if summary.year_min %}{{ summary.year_min }}–{{ summary.year_max }} годы, {{ summary.indicators }} показателей{% else %}данные не загружены{% endif %}</div>
   </div>

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge with context %}
+{% block title %}Нетипичные профили{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Нетипичные профили и типологические группы</h1>
+    <p class="lead">Автокодировщик сжимает показатели организации до нескольких скрытых признаков. По ним организации объединяются в группы со сходным профилем, а большая ошибка восстановления указывает на необычное сочетание показателей.</p>
+  </div>
+</div>
+
+{% if not ready %}
+<div class="card"><p class="muted">Нет рабочего автокодировщика или набора данных. Обучите модель вида «Автокодировщик» в разделе «Модели».</p></div>
+{% else %}
+<div class="grid c4">
+  <div class="card kpi"><div class="value">{{ total }}</div><div class="label">организаций проанализировано</div><div class="hint muted">данные {{ year }} года</div></div>
+  <div class="card kpi"><div class="value">{{ flagged }}</div><div class="label">нетипичных профилей</div><div class="hint muted">ошибка выше порога {{ threshold|num(3) }}</div></div>
+  <div class="card kpi"><div class="value">{{ groups|length }}</div><div class="label">типологических групп</div><div class="hint muted">метод k-средних в скрытом пространстве</div></div>
+  <div class="card kpi"><div class="value">№{{ experiment.id }}</div><div class="label">рабочий автокодировщик</div><div class="hint muted">{{ experiment.name }}</div></div>
+</div>
+
+<div class="grid c2">
+  <div class="card"><h2>Карта организаций</h2><div class="chart">{{ charts.map|safe }}</div></div>
+  <div class="card"><h2>Ошибка восстановления</h2><div class="chart">{{ charts.errors|safe }}</div>
+    <p class="muted small">Порог нетипичности — квантиль ошибки на обучающих данных. Организации правее порога стоит проверить вручную.</p></div>
+</div>
+
+<div class="card">
+  <h2>Типологические группы</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Группа</th><th class="num">Организаций</th><th>Состав по классам</th><th class="num">Нетипичных</th><th>Отличительные признаки (отклонение от среднего, σ)</th></tr>
+    {% for group in groups %}
+    <tr><td><b>Группа {{ group.number }}</b></td><td class="num">{{ group.size }}</td>
+      <td>{% for value in group.classes %}<span class="badge c{{ loop.index0 }}" title="{{ class_names[loop.index0] }}">{{ value }}</span> {% endfor %}</td>
+      <td class="num">{{ group.anomalies }}</td>
+      <td>{% for feature in group.features %}{{ feature.title }} <span class="{{ 'pass' if feature.value > 0 else 'fail' }}">({{ '%+.1f'|format(feature.value)|replace('.', ',') }})</span>{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Организации с наибольшей ошибкой восстановления</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Организация</th><th class="num">Оценка</th><th>Группа</th><th>Что не согласуется с остальными данными</th></tr>
+    {% for row in anomalies %}
+    <tr><td>{% if row.item %}<a href="{{ url_for('main.university', university_id=row.item.id) }}">{{ row.item.short_name }}</a>{% else %}{{ row.name }}{% endif %}</td>
+      <td class="num">{{ row.score|num(3) }} {% if row.flag %}<span class="badge warn">выше порога</span>{% endif %}</td>
+      <td>{{ row.cluster or '—' }}</td><td class="small">{{ row.reasons|join('; ') }}</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

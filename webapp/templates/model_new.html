@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Новое обучение{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Новое обучение</h1>
+    <p class="lead">Выберите вид модели и гиперпараметры. Обучение выполняется в фоне; его ход отображается в карточке эксперимента.</p>
+  </div>
+</div>
+
+{% if not dataset %}
+<div class="flash error">Нет рабочего набора данных. Загрузите данные в разделе «Данные».</div>
+{% else %}
+<form method="post">{{ csrf() }}
+<div class="grid c2">
+  <div class="card">
+    <h2>Что обучаем</h2>
+    <div class="form-row"><div class="field wide"><label for="name">Название эксперимента</label>
+      <input type="text" id="name" name="name" maxlength="128" placeholder="например: Многозадачная сеть 128-64"></div></div>
+    <div class="form-row"><div class="field wide"><label for="model_type">Вид модели</label>
+      <select id="model_type" name="model_type">
+        {% for code, title in model_types.items() %}<option value="{{ code }}">{{ title }}</option>{% endfor %}
+      </select></div></div>
+    <table class="data kv">
+      <tr><td>Набор данных</td><td>№{{ dataset.id }} «{{ dataset.name }}»</td></tr>
+      <tr><td>Годы мониторинга</td><td>{{ dataset.years }}</td></tr>
+      <tr><td>Разбиение</td><td>по времени: последний год с известным ответом — тест, предпоследний — валидация, более ранние — обучение</td></tr>
+    </table>
+    <h3>Подсказка</h3>
+    <p class="muted small"><b>Нейронная сеть</b> прогнозирует класс следующего года. При весе вспомогательной задачи больше нуля сеть
+      дополнительно учится предсказывать выполнение каждого показателя — это повышает качество.
+      <b>Автокодировщик</b> нужен для раздела «Нетипичные профили». <b>Подбор гиперпараметров</b> перебирает случайные сочетания
+      из сетки ({% for key, values in search_space.items() %}{{ key }}{% if not loop.last %}, {% endif %}{% endfor %}) и сохраняет лучшую сеть.
+      Остальные модели служат для сравнения.</p>
+  </div>
+
+  <div class="card">
+    <h2>Гиперпараметры</h2>
+    <div class="form-row">
+      <div class="field wide"><label for="hidden">Скрытые слои (нейронов через запятую)</label>
+        <input type="text" id="hidden" name="hidden" value="{{ defaults.hidden|join(', ') }}"></div>
+      <div class="field"><label for="activation">Активация</label>
+        <select id="activation" name="activation"><option>relu</option><option>gelu</option><option>elu</option><option>tanh</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="dropout">Прореживание (dropout)</label>
+        <input type="number" id="dropout" name="dropout" value="{{ defaults.dropout }}" min="0" max="0.9" step="0.05"></div>
+      <div class="field"><label for="learning_rate">Шаг обучения</label>
+        <input type="text" id="learning_rate" name="learning_rate" value="{{ defaults.learning_rate }}"></div>
+      <div class="field"><label for="weight_decay">L2-регуляризация</label>
+        <input type="text" id="weight_decay" name="weight_decay" value="{{ defaults.weight_decay }}"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="optimizer">Оптимизатор</label>
+        <select id="optimizer" name="optimizer"><option value="adamw">AdamW</option><option value="adam">Adam</option><option value="sgd">SGD с моментом</option></select></div>
+      <div class="field"><label for="scheduler">Изменение шага</label>
+        <select id="scheduler" name="scheduler"><option value="plateau">уменьшать при остановке роста</option><option value="cosine">косинусное</option><option value="none">постоянный шаг</option></select></div>
+      <div class="field"><label for="batch_size">Размер пакета</label>
+        <input type="number" id="batch_size" name="batch_size" value="{{ defaults.batch_size }}" min="8" max="1024"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="epochs">Эпох, не более</label>
+        <input type="number" id="epochs" name="epochs" value="{{ defaults.epochs }}" min="1" max="1000"></div>
+      <div class="field"><label for="patience">Ранняя остановка, эпох</label>
+        <input type="number" id="patience" name="patience" value="{{ defaults.patience }}" min="0" max="200">
+        <span class="hint">0 — не останавливать</span></div>
+      <div class="field"><label for="aux_weight">Вес вспомогательной задачи</label>
+        <input type="number" id="aux_weight" name="aux_weight" value="{{ defaults.aux_weight }}" min="0" max="10" step="0.5">
+        <span class="hint">0 — однозадачная сеть</span></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="label_smoothing">Сглаживание меток</label>
+        <input type="number" id="label_smoothing" name="label_smoothing" value="0" min="0" max="0.3" step="0.05"></div>
+      <div class="field"><label for="seed">Зерно генератора</label>
+        <input type="number" id="seed" name="seed" value="{{ defaults.seed }}" min="0"></div>
+      <div class="field wide"><label>&nbsp;</label>
+        <div class="checks"><label><input type="checkbox" name="batch_norm" value="1" checked> пакетная нормализация</label>
+          <label><input type="checkbox" name="class_weighted" value="1"> веса классов</label></div></div>
+    </div>
+    <h3>Только для автокодировщика и подбора</h3>
+    <div class="form-row">
+      <div class="field"><label for="latent_dim">Размер скрытого слоя</label>
+        <input type="number" id="latent_dim" name="latent_dim" value="8" min="2" max="64"></div>
+      <div class="field"><label for="n_clusters">Число групп</label>
+        <input type="number" id="n_clusters" name="n_clusters" value="5" min="2" max="12"></div>
+      <div class="field"><label for="anomaly_quantile">Квантиль порога</label>
+        <input type="number" id="anomaly_quantile" name="anomaly_quantile" value="0.95" min="0.5" max="0.999" step="0.01"></div>
+      <div class="field"><label for="n_trials">Испытаний при подборе</label>
+        <input type="number" id="n_trials" name="n_trials" value="15" min="2" max="60"></div>
+    </div>
+    <div class="actions"><button class="btn" type="submit">Запустить обучение</button>
+      <a class="btn secondary" href="{{ url_for('models.index') }}">Отмена</a></div>
+  </div>
+</div>
+</form>
+{% endif %}
+{% endblock %}

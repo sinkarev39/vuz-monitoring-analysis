@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge, csrf with context %}
+{% block title %}Что будет, если…{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Что будет, если…</h1>
+    <p class="lead">{{ item.short_name }}. Измените значения основных показателей {{ year }} года и посмотрите, как изменится прогноз на {{ year + 1 }} год. Остальные характеристики организации остаются прежними.</p>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Значения показателей</h2>
+    <form method="post">{{ csrf() }}
+      <div class="table-wrap"><table class="data">
+        <tr><th>Показатель</th><th class="num">Факт {{ year }}</th><th class="num">Медиана РФ</th><th>Сценарий</th></tr>
+        {% for field in fields %}
+        <tr><td><b>{{ field.code|upper|replace('E', 'E.') }}</b> {{ field.title }}</td>
+          <td class="num">{{ field.current|num }}</td><td class="num">{{ field.median|num }}</td>
+          <td style="min-width:130px"><input type="text" name="{{ field.code }}" value="{{ '%.2f'|format(field.scenario) }}" inputmode="decimal" aria-label="Сценарное значение {{ field.code }}">
+            <span class="small {{ 'pass' if field.passed else 'fail' }}">{{ 'не ниже медианы' if field.passed else 'ниже медианы' }}</span></td></tr>
+        {% endfor %}
+      </table></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn" type="submit">Пересчитать прогноз</button>
+        <a class="btn secondary" href="{{ url_for('forecast.what_if', university_id=item.id) }}">Вернуть фактические значения</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Прогноз на {{ year + 1 }} год</h2>
+    <table class="data">
+      <tr><th>Класс</th><th class="num">По факту</th><th class="num">По сценарию</th><th class="num">Изменение</th></tr>
+      {% for name in class_names %}
+      <tr><td>{{ class_badge(loop.index0) }}</td><td class="num">{{ base[loop.index0]|pct }}</td>
+        <td class="num"><b>{{ new[loop.index0]|pct }}</b></td>
+        {% set delta = (new[loop.index0] - base[loop.index0]) * 100 %}
+        <td class="num {{ 'pass' if delta > 0.05 else ('fail' if delta < -0.05 else 'muted') }}">{{ '%+.1f'|format(delta)|replace('.', ',') }} п.п.</td></tr>
+      {% endfor %}
+    </table>
+    <p style="margin-top:12px">Ожидаемый класс по факту: {{ class_badge(base_class) }} → по сценарию: {{ class_badge(new_class) }}</p>
+    {% if changed and base_class != new_class %}<div class="flash info">При заданных значениях показателей прогнозируемый класс меняется.</div>{% endif %}
+    <p class="muted small">Расчёт носит оценочный характер: модель обучена на фактических данных прошлых лет и не учитывает, что медианы следующего года тоже изменятся.</p>
+  </div>
+</div>
+{% endblock %}

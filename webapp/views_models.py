@@ -117,6 +117,7 @@ def new():
             "patience": _number(form, "patience", defaults.patience, int, 0, 200),
             "label_smoothing": _number(form, "label_smoothing", 0.0, float, 0.0, 0.3),
             "class_weighted": bool(form.get("class_weighted")),
+            "aux_weight": _number(form, "aux_weight", defaults.aux_weight, float, 0.0, 10.0),
             "scheduler": form.get("scheduler") if form.get("scheduler") in ("none", "plateau", "cosine") else "plateau",
             "seed": _number(form, "seed", 42, int, 0, 10 ** 6),
         }

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pager with context %}
+{% block title %}Журнал действий{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Администрирование</h1><p class="lead">Журнал действий: входы в систему, работа с данными и моделями, выгрузки, изменения настроек.</p></div>
+  <div class="actions"><a class="btn secondary" href="{{ url_for('reports.audit_xlsx') }}">Выгрузить в Excel</a></div>
+</div>
+{% include "_admin_tabs.html" %}
+<div class="card">
+  <form method="get"><div class="form-row">
+    <div class="field"><label for="user">Пользователь</label>
+      <select id="user" name="user"><option value="">все</option>
+        {% for row in users %}<option value="{{ row.id }}" {{ 'selected' if filters.get('user') == row.id|string }}>{{ row.login }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="action">Действие</label>
+      <select id="action" name="action"><option value="">любое</option>
+        {% for value in actions %}<option value="{{ value }}" {{ 'selected' if filters.get('action') == value }}>{{ value }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="days">Период</label>
+      <select id="days" name="days"><option value="">всё время</option>
+        {% for value, title in (('1', 'сутки'), ('7', 'неделя'), ('30', 'месяц')) %}<option value="{{ value }}" {{ 'selected' if filters.get('days') == value }}>{{ title }}</option>{% endfor %}</select></div>
+    <div class="actions"><button class="btn" type="submit">Показать</button>
+      <a class="btn secondary" href="{{ url_for('admin.audit') }}">Сбросить</a></div>
+  </div></form>
+</div>
+<div class="card">
+  <p class="muted">Записей: <b>{{ total|num }}</b></p>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Дата и время</th><th>Пользователь</th><th>Действие</th><th>Описание</th><th>IP-адрес</th></tr>
+    {% for row in rows %}
+    <tr><td class="nowrap">{{ row.created_at|dt }}</td><td>{{ row.user.login if row.user else '—' }}</td>
+      <td><span class="badge outline">{{ row.action }}</span></td><td>{{ row.details }}</td><td class="muted">{{ row.ip_address }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">Записей нет.</td></tr>{% endfor %}
+  </table></div>
+  {{ pager('admin.audit', page, pages, filters) }}
+</div>
+{% endblock %}

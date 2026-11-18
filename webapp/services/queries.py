@@ -134,7 +134,7 @@ def database_summary(db) -> dict:
         "universities": db.scalar(select(func.count()).select_from(University)),
         "heads": db.scalar(select(func.count()).select_from(University).where(University.is_branch.is_(False))),
         "regions": db.scalar(select(func.count()).select_from(Region)),
-        "values": db.scalar(select(func.count()).select_from(IndicatorValue)),
+        "values_count": db.scalar(select(func.count()).select_from(IndicatorValue)),
         "indicators": db.scalar(select(func.count()).select_from(Indicator)),
         "year_min": years[0], "year_max": years[1],
     }

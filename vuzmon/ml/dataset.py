@@ -300,3 +300,34 @@ def temporal_split(samples: SampleSet, val_year: int = None, test_year: int = No
         "test": samples.subset(known & (year == test_year)),
         "future": samples.subset(~known & (year == year.max())),
     }
+
+
+def apply_scenario(features: pd.DataFrame, values: dict, medians: dict, previous: dict) -> pd.DataFrame:
+    """
+    Пересчитывает признаки организации для расчёта «что будет, если…».
+
+    features — строка признаков организации (таблица из одной строки);
+    values   — новые значения основных показателей {код: значение};
+    medians  — медианы по России текущего года {код: значение};
+    previous — значения показателей предыдущего года {код: значение}.
+    Меняются только признаки, зависящие от основных показателей; остальные
+    характеристики организации остаются прежними.
+    """
+    row = features.iloc[[0]].copy()
+    index = row.index[0]
+    for code, value in values.items():
+        median = medians.get(code)
+        if median is None or not median > 0 or f"{code}_ratio" not in row.columns:
+            continue
+        ratio = pd.Series([value / median], index=[index])
+        row.loc[index, f"{code}_ratio"] = ratio.iloc[0]
+        row.loc[index, f"{code}_margin"] = _margin(ratio).iloc[0]
+        row.loc[index, f"{code}_pass"] = float(value >= median and value > 0)
+        before = previous.get(code)
+        if before is not None and abs(before) > 1e-9:
+            row.loc[index, f"{code}_growth"] = float(np.clip((value - before) / abs(before), -1.0, 3.0))
+    row.loc[index, "pass_count"] = float(sum(row.loc[index, f"{code}_pass"] for code in HEAD_TARGET_INDICATORS))
+    ordered = sorted(row.loc[index, f"{code}_margin"] for code in HEAD_TARGET_INDICATORS)
+    for position, value in enumerate(ordered):
+        row.loc[index, f"margin_sorted_{position + 1}"] = value
+    return row

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Отчёты{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Отчёты</h1>
+    <p class="lead">Документы Word и таблицы Excel формируются по текущим данным системы и сразу скачиваются.</p>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Аналитическая справка по организации <span class="badge outline">Word</span></h2>
+    <p class="muted small">Паспорт организации, основные показатели за пять лет, прогноз, объяснение прогноза и заметки аналитиков.</p>
+    <form method="get" action="{{ url_for('reports.find_university') }}">
+      <div class="form-row">
+        <div class="field wide"><label for="q">Название организации (или его часть)</label>
+          <input type="search" id="q" name="q" required placeholder="например: Витте"></div>
+        <button class="btn" type="submit">Сформировать</button>
+      </div>
+    </form>
+    <p class="muted small">Справку также можно получить кнопкой «Справка в Word» в карточке организации.</p>
+  </div>
+
+  <div class="card">
+    <h2>Сводная записка по прогнозу <span class="badge outline">Word</span></h2>
+    <p class="muted small">Распределение организаций по классам и федеральным округам, перечни организаций с ожидаемым снижением и повышением класса.</p>
+    {% if target_year %}<a class="btn" href="{{ url_for('reports.summary_docx') }}">Сформировать записку на {{ target_year }} год</a>
+    {% else %}<p class="muted">Доступно после построения прогноза.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Таблица прогноза <span class="badge outline">Excel</span></h2>
+    <p class="muted small">Все организации с вероятностями классов, оценкой нетипичности и группой; лист со сводкой.</p>
+    {% if target_year %}
+    <form method="get" action="{{ url_for('reports.forecast_xlsx') }}">
+      <div class="form-row">
+        <div class="field"><label for="district">Федеральный округ</label>
+          <select id="district" name="district"><option value="">все</option>
+            {% for row in districts %}<option value="{{ row.id }}">{{ row.name }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="predicted">Прогноз</label>
+          <select id="predicted" name="predicted"><option value="">любой</option>
+            {% for name in class_names %}<option value="{{ loop.index0 }}">{{ name }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="change">Изменение класса</label>
+          <select id="change" name="change"><option value="">любое</option><option value="down">снижение</option><option value="up">рост</option></select></div>
+        <button class="btn" type="submit">Выгрузить</button>
+      </div>
+    </form>
+    {% else %}<p class="muted">Доступно после построения прогноза.</p>{% endif %}
+  </div>
+
+  {% if has_role('admin', 'analyst') %}
+  <div class="card">
+    <h2>Протокол обучения модели <span class="badge outline">Word</span></h2>
+    <p class="muted small">Гиперпараметры, метрики качества, матрица ошибок и кривые обучения выбранного эксперимента.</p>
+    <table class="data">
+      {% for row in experiments[:8] %}
+      <tr><td>№{{ row.id }} «{{ row.name }}»<div class="muted small">{{ model_types.get(row.model_type, row.model_type) }}</div></td>
+        <td class="right"><a class="btn secondary small" href="{{ url_for('reports.experiment_docx', experiment_id=row.id) }}">Сформировать</a></td></tr>
+      {% else %}<tr><td class="muted">Готовых экспериментов нет.</td></tr>{% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if has_role('admin') %}
+  <div class="card">
+    <h2>Журнал действий пользователей <span class="badge outline">Excel</span></h2>
+    <p class="muted small">Последние 5000 записей журнала: кто, когда и какие действия выполнял в системе.</p>
+    <a class="btn" href="{{ url_for('reports.audit_xlsx') }}">Выгрузить журнал</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

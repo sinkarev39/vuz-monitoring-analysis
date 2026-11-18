@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Роли и права{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Администрирование</h1><p class="lead">Роли пользователей и перечень действий, доступных каждой роли.</p></div></div>
+{% include "_admin_tabs.html" %}
+<div class="card">
+  <h2>Роли</h2>
+  <table class="data">
+    <tr><th>Роль</th><th>Код</th><th>Описание</th><th class="num">Пользователей</th></tr>
+    {% for row in rows %}<tr><td><b>{{ row.title }}</b></td><td><code>{{ row.code }}</code></td><td>{{ row.description }}</td><td class="num">{{ counts.get(row.id, 0) }}</td></tr>{% endfor %}
+  </table>
+</div>
+<div class="card">
+  <h2>Матрица прав доступа</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Действие</th>{% for row in rows %}<th class="center">{{ row.title }}</th>{% endfor %}</tr>
+    {% for title, allowed in permissions %}
+    <tr><td>{{ title }}</td>{% for row in rows %}<td class="center">{% if row.code in allowed %}<span class="pass">да</span>{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}</tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endblock %}

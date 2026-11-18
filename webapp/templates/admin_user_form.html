@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Учётная запись{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{{ 'Учётная запись «' ~ item.login ~ '»' if item else 'Новый пользователь' }}</h1>
+  <p class="lead">Роль определяет, какие разделы и действия доступны пользователю.</p></div></div>
+{% include "_admin_tabs.html" %}
+<div class="card" style="max-width:760px">
+  <form method="post" autocomplete="off">{{ csrf() }}
+    <div class="form-row">
+      <div class="field wide"><label for="login">Логин</label>
+        <input type="text" id="login" name="login" value="{{ item.login if item else request.form.get('login', '') }}" {{ 'readonly' if item }} required maxlength="64">
+        {% if item %}<span class="hint">логин изменить нельзя</span>{% endif %}</div>
+      <div class="field wide"><label for="password">{{ 'Новый пароль' if item else 'Пароль' }}</label>
+        <input type="password" id="password" name="password" {{ '' if item else 'required' }} minlength="8" autocomplete="new-password">
+        <span class="hint">{{ 'оставьте пустым, чтобы не менять; ' if item }}не менее 8 символов, буквы и цифры</span></div>
+    </div>
+    <div class="form-row">
+      <div class="field wide"><label for="full_name">Фамилия, имя, отчество</label>
+        <input type="text" id="full_name" name="full_name" value="{{ item.full_name if item else request.form.get('full_name', '') }}" maxlength="128"></div>
+    </div>
+    <div class="form-row">
+      <div class="field wide"><label for="position">Должность</label>
+        <input type="text" id="position" name="position" value="{{ item.position if item else request.form.get('position', '') }}" maxlength="128"></div>
+      <div class="field wide"><label for="email">Электронная почта</label>
+        <input type="email" id="email" name="email" value="{{ item.email if item else request.form.get('email', '') }}" maxlength="128"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="role_id">Роль</label>
+        <select id="role_id" name="role_id">
+          {% for role in roles %}<option value="{{ role.id }}" {{ 'selected' if item and item.role_id == role.id }}>{{ role.title }}</option>{% endfor %}
+        </select></div>
+      <div class="field wide"><label>&nbsp;</label>
+        <div class="checks"><label><input type="checkbox" name="is_active" value="1" {{ 'checked' if not item or item.is_active }}> учётная запись активна</label></div></div>
+    </div>
+    <div class="actions"><button class="btn" type="submit">Сохранить</button>
+      <a class="btn secondary" href="{{ url_for('admin.users') }}">Отмена</a></div>
+  </form>
+</div>
+{% endblock %}

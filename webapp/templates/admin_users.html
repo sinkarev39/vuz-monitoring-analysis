@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Пользователи{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Администрирование</h1><p class="lead">Учётные записи пользователей системы.</p></div>
+  <div class="actions"><a class="btn" href="{{ url_for('admin.user_form') }}">Новый пользователь</a></div>
+</div>
+{% include "_admin_tabs.html" %}
+<div class="card">
+  <div class="table-wrap"><table class="data">
+    <tr><th>Логин</th><th>ФИО</th><th>Должность</th><th>Роль</th><th>Состояние</th><th>Создан</th><th>Последний вход</th><th></th></tr>
+    {% for row in rows %}
+    <tr><td><b>{{ row.login }}</b></td><td>{{ row.full_name }}</td><td>{{ row.position }}</td>
+      <td><span class="badge outline">{{ row.role.title }}</span></td>
+      <td><span class="badge {{ 'ok' if row.is_active else 'off' }}">{{ 'активна' if row.is_active else 'отключена' }}</span></td>
+      <td class="nowrap">{{ row.created_at|dt }}</td><td class="nowrap">{{ row.last_login_at|dt }}</td>
+      <td class="right"><a class="btn secondary small" href="{{ url_for('admin.user_form', user_id=row.id) }}">Изменить</a></td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endblock %}
