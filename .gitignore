@@ -1,0 +1,15 @@
+# Виртуальное окружение и служебные файлы Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Кэш «сырых» HTML-страниц сайта мониторинга (восстанавливается сборщиком)
+data/cache/
+
+# Временные файлы приложения
+instance/
+*.log
+.DS_Store
