@@ -44,7 +44,7 @@ def _forecast_rows(db, args) -> tuple:
         .where(University.id.in_(list(predictions) or [-1]))
     search = args.get("q", "").strip()
     if search:
-        query = query.where(func.lower(University.name).like(f"%{search.lower()}%"))
+        query = query.where(queries.name_filter(search))
     if args.get("district", "").isdigit():
         query = query.where(Region.district_id == int(args["district"]))
     rows = []
@@ -82,8 +82,8 @@ def index():
 def find_university():
     """Переход к справке по организации по части её названия (форма на странице отчётов)."""
     db = get_session()
-    search = request.args.get("q", "").strip().lower()
-    item = db.scalars(select(University).where(func.lower(University.name).like(f"%{search}%"))
+    search = request.args.get("q", "").strip()
+    item = db.scalars(select(University).where(queries.name_filter(search))
                       .order_by(University.is_branch, University.short_name)).first() if search else None
     if item is None:
         flash("Организация с таким названием не найдена.", "error")

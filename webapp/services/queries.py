@@ -21,6 +21,15 @@ from vuzmon.db.models import (Indicator, IndicatorMedian, IndicatorValue, Predic
 from vuzmon.ml.dataset import class_from_count, target_indicators
 
 
+def name_filter(search: str):
+    """
+    Условие поиска организации по части названия без учёта регистра.
+    Сравнение идёт с заранее подготовленным полем search_name, поэтому
+    результат не зависит от того, как СУБД обращается с кириллицей.
+    """
+    return University.search_name.contains(search.strip().lower(), autoescape=True)
+
+
 def indicators_by_column(db) -> dict:
     """Справочник показателей: имя столбца -> объект Indicator."""
     return {indicator.column: indicator for indicator in db.scalars(select(Indicator))}

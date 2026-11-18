@@ -114,7 +114,7 @@ def universities():
     query = select(University).join(Region, Region.id == University.region_id)
     search = args.get("q", "").strip()
     if search:
-        query = query.where(func.lower(University.name).like(f"%{search.lower()}%"))
+        query = query.where(queries.name_filter(search))
     if args.get("region", "").isdigit():
         query = query.where(University.region_id == int(args["region"]))
     if args.get("district", "").isdigit():
@@ -278,7 +278,7 @@ def compare():
     search = request.args.get("q", "").strip()
     found = []
     if search:
-        found = db.scalars(select(University).where(func.lower(University.name).like(f"%{search.lower()}%"))
+        found = db.scalars(select(University).where(queries.name_filter(search))
                            .order_by(University.is_branch, University.short_name).limit(15)).all()
 
     selected, rows, chart = [], [], None

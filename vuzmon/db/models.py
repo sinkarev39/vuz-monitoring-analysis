@@ -124,6 +124,9 @@ class University(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)       # код организации на сайте мониторинга
     name: Mapped[str] = mapped_column(String(512), index=True)
     short_name: Mapped[str] = mapped_column(String(255), default="")
+    # Название в нижнем регистре для поиска. Регистр приводится в Python:
+    # функция lower() в SQLite не изменяет буквы кириллицы
+    search_name: Mapped[str] = mapped_column(String(800), default="")
     is_branch: Mapped[bool] = mapped_column(Boolean, default=False)
     head_id: Mapped[int] = mapped_column(Integer, nullable=True)      # головная организация (для филиалов)
     region_id: Mapped[int] = mapped_column(ForeignKey("regions.id"))

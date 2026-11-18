@@ -46,7 +46,7 @@ def index():
         .where(University.id.in_(list(predictions) or [-1]))
     search = args.get("q", "").strip()
     if search:
-        query = query.where(func.lower(University.name).like(f"%{search.lower()}%"))
+        query = query.where(queries.name_filter(search))
     if args.get("district", "").isdigit():
         query = query.where(Region.district_id == int(args["district"]))
     rows = []

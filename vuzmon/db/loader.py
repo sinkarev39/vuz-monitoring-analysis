@@ -110,8 +110,10 @@ def load_monitoring_frames(session, frames: dict, progress=None) -> dict:
         is_branch = bool(row.is_branch)
         city = row.city if isinstance(row.city, str) else ""
         founder = founders.get(row.founder_group) if isinstance(row.founder_group, str) else None
+        short_name = make_short_name(row.name, is_branch, city)
         session.merge(University(
-            id=int(row.inst_id), name=row.name, short_name=make_short_name(row.name, is_branch, city),
+            id=int(row.inst_id), name=row.name, short_name=short_name,
+            search_name=f"{row.name} {short_name}".lower(),
             is_branch=is_branch, head_id=int(row.head_id) if pd.notna(row.head_id) else None,
             region_id=int(row.region_id), founder_group_id=founder.id if founder else None,
             city=city, address=row.address if isinstance(row.address, str) else "",
