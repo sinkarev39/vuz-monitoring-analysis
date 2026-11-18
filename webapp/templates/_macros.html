@@ -1,0 +1,32 @@
+{# Повторно используемые элементы интерфейса. #}
+
+{# Метка класса результативности #}
+{% macro class_badge(value) -%}
+  {%- if value is none -%}<span class="muted">—</span>
+  {%- else -%}<span class="badge c{{ value }}">{{ class_names[value] }}</span>{%- endif -%}
+{%- endmacro %}
+
+{# Полоса вероятностей трёх классов #}
+{% macro proba_bar(probabilities) -%}
+  <div class="bar" title="{% for p in probabilities %}{{ class_names[loop.index0] }}: {{ (p * 100)|round(1) }} %{% if not loop.last %}; {% endif %}{% endfor %}">
+    {%- for p in probabilities %}<i class="c{{ loop.index0 }}" style="width: {{ (p * 100)|round(1) }}%"></i>{% endfor -%}
+  </div>
+{%- endmacro %}
+
+{# Постраничная навигация; params — словарь текущих фильтров #}
+{% macro pager(endpoint, page, pages, params) -%}
+  {% if pages > 1 %}
+  <div class="pager">
+    {% if page > 1 %}<a href="{{ url_for(endpoint, page=page - 1, **params) }}">← Назад</a>{% endif %}
+    {% for number in range(1, pages + 1) %}
+      {% if number == page %}<span class="current">{{ number }}</span>
+      {% elif number <= 2 or number > pages - 2 or (number - page)|abs <= 2 %}<a href="{{ url_for(endpoint, page=number, **params) }}">{{ number }}</a>
+      {% elif number == 3 or number == pages - 2 %}<span>…</span>{% endif %}
+    {% endfor %}
+    {% if page < pages %}<a href="{{ url_for(endpoint, page=page + 1, **params) }}">Вперёд →</a>{% endif %}
+  </div>
+  {% endif %}
+{%- endmacro %}
+
+{# Скрытое поле защиты формы #}
+{% macro csrf() -%}<input type="hidden" name="_csrf" value="{{ csrf_token() }}">{%- endmacro %}

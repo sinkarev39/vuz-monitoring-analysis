@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Набор данных №{{ dataset.id }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ dataset.name }} {% if is_active %}<span class="badge ok">рабочий</span>{% endif %}</h1>
+    <p class="lead">{{ dataset.description or 'Набор данных мониторинга эффективности деятельности вузов.' }}</p>
+  </div>
+  <div class="actions"><a class="btn" href="{{ url_for('data.download', dataset_id=dataset.id) }}">Скачать ZIP</a></div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Сведения</h2>
+    <table class="data kv">
+      <tr><td>Источник</td><td>{{ 'сайт мониторинга' if dataset.source == 'site' else 'загрузка из файла' }}</td></tr>
+      <tr><td>Расположение</td><td><code>{{ dataset.location }}</code></td></tr>
+      <tr><td>Годы мониторинга</td><td>{{ dataset.years }}</td></tr>
+      <tr><td>Создан</td><td>{{ dataset.created_at|dt }}{% if dataset.author %}, {{ dataset.author.login }}{% endif %}</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Состав по годам</h2>
+    <table class="data">
+      <tr><th>Год</th><th class="num">Организаций</th><th class="num">в т. ч. головных</th><th class="num">филиалов</th></tr>
+      {% for row in by_year %}
+      <tr><td>{{ row.year }}</td><td class="num">{{ row.total|num }}</td><td class="num">{{ (row.total - row.branches)|num }}</td><td class="num">{{ row.branches|num }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+{% for table in tables %}
+<div class="card">
+  <h2>{{ table.title }} <span class="muted small">— {{ table.file }}: строк {{ table.rows|num }}, столбцов {{ table.columns }}, пропусков в числовых столбцах {{ table.missing|pct }}</span></h2>
+  <div class="table-wrap"><table class="data">
+    <tr>{% for column in table.preview.columns %}<th>{{ column }}</th>{% endfor %}</tr>
+    {% for row in table.preview.data %}
+    <tr>{% for value in row %}<td>{{ (value|string)[:60] }}</td>{% endfor %}</tr>
+    {% endfor %}
+  </table></div>
+  <p class="muted small">Показаны первые строки и первые девять столбцов.</p>
+</div>
+{% endfor %}
+{% endblock %}

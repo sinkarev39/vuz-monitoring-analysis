@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge, proba_bar, pager %}
+{% block title %}Организации{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Организации</h1>
+    <p class="lead">Реестр образовательных организаций высшего образования и их филиалов, участвующих в мониторинге.</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get">
+    <div class="form-row">
+      <div class="field wide"><label for="q">Поиск по названию</label>
+        <input type="search" id="q" name="q" value="{{ filters.get('q', '') }}" placeholder="например: Витте"></div>
+      <div class="field"><label for="district">Федеральный округ</label>
+        <select id="district" name="district"><option value="">все</option>
+          {% for row in districts %}<option value="{{ row.id }}" {{ 'selected' if filters.get('district') == row.id|string }}>{{ row.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="region">Субъект РФ</label>
+        <select id="region" name="region"><option value="">все</option>
+          {% for row in regions %}<option value="{{ row.id }}" {{ 'selected' if filters.get('region') == row.id|string }}>{{ row.name }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="field wide"><label for="founder">Ведомственная принадлежность</label>
+        <select id="founder" name="founder"><option value="">любая</option>
+          {% for row in founders %}<option value="{{ row.id }}" {{ 'selected' if filters.get('founder') == row.id|string }}>{{ row.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="kind">Тип</label>
+        <select id="kind" name="kind"><option value="">все</option>
+          <option value="head" {{ 'selected' if filters.get('kind') == 'head' }}>головные</option>
+          <option value="branch" {{ 'selected' if filters.get('kind') == 'branch' }}>филиалы</option></select></div>
+      <div class="field"><label for="predicted">Прогноз</label>
+        <select id="predicted" name="predicted"><option value="">любой</option>
+          {% for name in class_names %}<option value="{{ loop.index0 }}" {{ 'selected' if filters.get('predicted') == loop.index0|string }}>{{ name }}</option>{% endfor %}</select></div>
+      <div class="actions"><button class="btn" type="submit">Найти</button>
+        <a class="btn secondary" href="{{ url_for('main.universities') }}">Сбросить</a></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <p class="muted">Найдено организаций: <b>{{ total|num }}</b></p>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Организация</th><th>Регион</th><th>Тип</th><th>Текущий класс</th><th>Прогноз</th><th>Вероятности классов</th></tr>
+    {% for row in rows %}
+    {% set prediction = predictions.get(row.id) %}
+    <tr>
+      <td><a href="{{ url_for('main.university', university_id=row.id) }}">{{ row.short_name }}</a></td>
+      <td>{{ row.region.name }}</td>
+      <td>{{ 'филиал' if row.is_branch else 'головная' }}</td>
+      <td>{{ class_badge(current.get(row.id)) }}</td>
+      <td>{% if prediction %}{{ class_badge(prediction.predicted_class) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if prediction %}{{ proba_bar(prediction.probabilities) }}{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="6" class="muted">По заданным условиям ничего не найдено.</td></tr>{% endfor %}
+  </table></div>
+  {{ pager('main.universities', page, pages, filters) }}
+</div>
+{% endblock %}

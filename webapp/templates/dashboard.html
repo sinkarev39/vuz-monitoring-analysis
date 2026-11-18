@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge, proba_bar %}
+{% block title %}Обзор{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Обзор</h1>
+    <p class="lead">Состояние данных мониторинга, рабочих моделей и прогноза на следующий год.</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="{{ url_for('main.universities') }}">Реестр организаций</a>
+    <a class="btn" href="{{ url_for('forecast.index') }}">Прогноз</a>
+  </div>
+</div>
+
+<div class="grid c4">
+  <div class="card kpi">
+    <div class="value">{{ summary.universities|num }}</div>
+    <div class="label">организаций в базе данных</div>
+    <div class="hint muted">головных — {{ summary.heads|num }}, филиалов — {{ (summary.universities - summary.heads)|num }}</div>
+  </div>
+  <div class="card kpi">
+    <div class="value">{{ summary.values|num }}</div>
+    <div class="label">значений показателей</div>
+    <div class="hint muted">{% if summary.year_min %}{{ summary.year_min }}–{{ summary.year_max }} годы, {{ summary.indicators }} показателей{% else %}данные не загружены{% endif %}</div>
+  </div>
+  <div class="card kpi">
+    {% if classifier and classifier_metrics.test %}
+      <div class="value">{{ classifier_metrics.test.accuracy|pct }}</div>
+      <div class="label">доля верных прогнозов на тестовом годе</div>
+      <div class="hint muted">наивный прогноз — {{ classifier_metrics.persistence.test.accuracy|pct }}; модель №{{ classifier.id }}</div>
+    {% else %}
+      <div class="value">—</div><div class="label">нет рабочей модели прогноза</div>
+      <div class="hint"><a href="{{ url_for('models.index') }}">Обучить модель</a></div>
+    {% endif %}
+  </div>
+  <div class="card kpi">
+    {% if has_predictions %}
+      <div class="value">{{ forecast_counts[0] }}</div>
+      <div class="label">организаций в зоне риска по прогнозу на {{ target_year }} год</div>
+      <div class="hint muted">нетипичных профилей — {{ anomalies }}</div>
+    {% else %}
+      <div class="value">—</div><div class="label">прогноз ещё не построен</div>
+      <div class="hint"><a href="{{ url_for('forecast.index') }}">Построить прогноз</a></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Динамика классов результативности</h2>
+    {% if charts.classes %}<div class="chart">{{ charts.classes|safe }}</div>
+    <p class="muted small">Класс определяется числом основных показателей (из пяти), значения которых не ниже медианы по России.</p>
+    {% else %}<p class="muted">Набор данных не загружен. Перейдите в раздел «Данные».</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Ожидаемые переходы между классами</h2>
+    {% if charts.transitions %}<div class="chart">{{ charts.transitions|safe }}</div>
+    <p class="muted small">По строкам — класс в последнем году мониторинга, по столбцам — прогноз модели на следующий год.</p>
+    {% else %}<p class="muted">Появится после построения прогноза.</p>{% endif %}
+  </div>
+</div>
+
+{% if home %}
+<div class="card">
+  <h2>Наша организация</h2>
+  <div class="form-row" style="align-items:center">
+    <div class="wide" style="flex:1"><a href="{{ url_for('main.university', university_id=home.university.id) }}"><b>{{ home.university.short_name }}</b></a>
+      <div class="muted small">{{ home.university.region.name }}</div></div>
+    <div>Текущий класс: {{ class_badge(home.current) }}</div>
+    {% if home.prediction %}
+      <div>Прогноз на {{ home.prediction.target_year }}: {{ class_badge(home.prediction.predicted_class) }}</div>
+      <div style="width:220px">{{ proba_bar(home.prediction.probabilities) }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if has_predictions %}
+<div class="grid c2">
+  <div class="card">
+    <h2>Ожидается снижение класса</h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>Организация</th><th>Сейчас</th><th>Прогноз</th><th class="num">Уверенность</th></tr>
+      {% for row in movers.down %}
+      <tr><td><a href="{{ url_for('main.university', university_id=row.id) }}">{{ row.name }}</a></td>
+        <td>{{ class_badge(row.now) }}</td><td>{{ class_badge(row.next) }}</td><td class="num">{{ row.confidence|pct }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">Таких организаций нет.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="card">
+    <h2>Ожидается повышение класса</h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>Организация</th><th>Сейчас</th><th>Прогноз</th><th class="num">Уверенность</th></tr>
+      {% for row in movers.up %}
+      <tr><td><a href="{{ url_for('main.university', university_id=row.id) }}">{{ row.name }}</a></td>
+        <td>{{ class_badge(row.now) }}</td><td>{{ class_badge(row.next) }}</td><td class="num">{{ row.confidence|pct }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">Таких организаций нет.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Рабочие модели</h2>
+    <table class="data kv">
+      <tr><td>Прогноз класса</td><td>{% if classifier %}{% if has_role('admin', 'analyst') %}<a href="{{ url_for('models.detail', experiment_id=classifier.id) }}">№{{ classifier.id }} «{{ classifier.name }}»</a>{% else %}№{{ classifier.id }} «{{ classifier.name }}»{% endif %}{% else %}<span class="muted">не выбрана</span>{% endif %}</td></tr>
+      <tr><td>Профили и нетипичные записи</td><td>{% if autoencoder %}{% if has_role('admin', 'analyst') %}<a href="{{ url_for('models.detail', experiment_id=autoencoder.id) }}">№{{ autoencoder.id }} «{{ autoencoder.name }}»</a>{% else %}№{{ autoencoder.id }} «{{ autoencoder.name }}»{% endif %}{% else %}<span class="muted">не выбрана</span>{% endif %}</td></tr>
+      {% if classifier_metrics.test %}
+      <tr><td>Сбалансированная точность</td><td>{{ classifier_metrics.test.balanced_accuracy|pct }}</td></tr>
+      <tr><td>Macro-F1</td><td>{{ classifier_metrics.test.macro_f1|num(3) }}</td></tr>
+      <tr><td>ROC-AUC (среднее по классам)</td><td>{{ classifier_metrics.test.macro_auc|num(3) }}</td></tr>
+      {% endif %}
+    </table>
+  </div>
+  {% if recent %}
+  <div class="card">
+    <h2>Последние действия пользователей</h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>Время</th><th>Пользователь</th><th>Действие</th></tr>
+      {% for row in recent %}
+      <tr><td class="nowrap">{{ row.created_at|dt }}</td><td>{{ row.user.login if row.user else '—' }}</td><td>{{ row.details or row.action }}</td></tr>
+      {% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

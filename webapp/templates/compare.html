@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge %}
+{% block title %}Сравнение организаций{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Сравнение организаций</h1>
+    <p class="lead">Сопоставление до четырёх организаций по основным показателям последнего года мониторинга.</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get">
+    {% for value in ids %}<input type="hidden" name="id" value="{{ value }}">{% endfor %}
+    <div class="form-row">
+      <div class="field wide"><label for="q">Добавить организацию в сравнение</label>
+        <input type="search" id="q" name="q" value="{{ search }}" placeholder="часть названия"></div>
+      <div class="actions"><button class="btn" type="submit">Найти</button>
+        <a class="btn secondary" href="{{ url_for('main.compare') }}">Очистить сравнение</a></div>
+    </div>
+  </form>
+  {% if search %}
+  <table class="data">
+    {% for row in found %}
+    <tr><td>{{ row.short_name }} <span class="muted small">— {{ row.region.name }}</span></td>
+      <td class="right">{% if row.id in ids %}<span class="muted">уже в сравнении</span>
+        {% elif ids|length >= 4 %}<span class="muted">не более четырёх</span>
+        {% else %}<a class="btn secondary small" href="{{ url_for('main.compare', id=ids + [row.id]) }}">добавить</a>{% endif %}</td></tr>
+    {% else %}<tr><td class="muted">Ничего не найдено.</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{% if selected %}
+<div class="card">
+  <h2>Основные показатели</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Показатель</th>
+      {% for item in selected %}<th class="num"><a href="{{ url_for('main.university', university_id=item.id) }}">{{ item.short_name[:48] }}</a>
+        <br><a class="small" href="{{ url_for('main.compare', id=ids|reject('equalto', item.id)|list) }}">убрать</a></th>{% endfor %}</tr>
+    {% for row in rows %}
+    <tr><td><b>{{ row.code|upper|replace('E', 'E.') }}</b> {{ row.title }}</td>
+      {% for cell in row.cells %}
+      <td class="num">{% if cell %}<span class="{{ 'pass' if cell.passed else ('fail' if cell.passed is not none else '') }}">{{ cell.value|num }}</span>
+        <div class="muted small">медиана {{ cell.median|num }}, {{ cell.year }} г.</div>{% else %}—{% endif %}</td>
+      {% endfor %}</tr>
+    {% endfor %}
+  </table></div>
+  {% if chart %}<div class="chart" style="margin-top:12px">{{ chart|safe }}</div>{% endif %}
+</div>
+{% else %}
+<div class="card"><p class="muted">Найдите организации по названию и добавьте их в сравнение.</p></div>
+{% endif %}
+{% endblock %}

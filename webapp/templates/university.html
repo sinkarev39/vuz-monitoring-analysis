@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% from "_macros.html" import class_badge, proba_bar, csrf %}
+{% block title %}{{ item.short_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ item.short_name }}</h1>
+    <p class="lead">{{ item.name }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="{{ url_for('main.compare', id=item.id) }}">Сравнить</a>
+    {% if prediction %}<a class="btn secondary" href="{{ url_for('forecast.what_if', university_id=item.id) }}">Что будет, если…</a>{% endif %}
+    <a class="btn" href="{{ url_for('reports.university_docx', university_id=item.id) }}">Справка в Word</a>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Общие сведения</h2>
+    <table class="data kv">
+      <tr><td>Тип организации</td><td>{{ 'Филиал' if item.is_branch else 'Головная организация' }}</td></tr>
+      {% if head %}<tr><td>Головная организация</td><td><a href="{{ url_for('main.university', university_id=head.id) }}">{{ head.short_name }}</a></td></tr>{% endif %}
+      <tr><td>Регион</td><td>{{ item.region.name }} ({{ item.region.district.name }})</td></tr>
+      <tr><td>Адрес</td><td>{{ item.address or '—' }}</td></tr>
+      <tr><td>Ведомственная принадлежность</td><td>{{ item.founder_group.name if item.founder_group else '—' }}</td></tr>
+      <tr><td>Отраслевая специфика</td><td>{{ item.specifics or '—' }}</td></tr>
+      <tr><td>Сайт</td><td>{{ item.website or '—' }}</td></tr>
+      <tr><td>Код в мониторинге</td><td>{{ item.id }} <span class="muted small">(последнее участие — {{ item.last_year }} год)</span></td></tr>
+      {% if branches %}<tr><td>Филиалы в мониторинге</td><td>{% for branch in branches %}<a href="{{ url_for('main.university', university_id=branch.id) }}">{{ branch.city or branch.short_name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>{% endif %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Прогноз модели</h2>
+    {% if prediction %}
+      <p>Ожидаемый класс в мониторинге {{ prediction.target_year }} года: {{ class_badge(prediction.predicted_class) }}</p>
+      <table class="data">
+        {% for p in prediction.probabilities %}
+        <tr><td style="width:36%">{{ class_names[loop.index0] }}</td>
+          <td><div class="bar"><i class="c{{ loop.index0 }}" style="width: {{ (p * 100)|round(1) }}%"></i></div></td>
+          <td class="num" style="width:70px">{{ p|pct }}</td></tr>
+        {% endfor %}
+      </table>
+      {% if prediction.anomaly_score is not none %}
+      <p style="margin-top:10px">Оценка нетипичности профиля: <b>{{ prediction.anomaly_score|num(3) }}</b>
+        {% if explanation.threshold and prediction.anomaly_score > explanation.threshold %}<span class="badge warn">выше порога {{ explanation.threshold|num(3) }}</span>
+        {% elif explanation.threshold %}<span class="muted small">(порог {{ explanation.threshold|num(3) }})</span>{% endif %}
+        {% if prediction.cluster is not none %} · типологическая группа № {{ prediction.cluster + 1 }}{% endif %}</p>
+      {% endif %}
+      <p class="muted small">Прогноз построен {{ prediction.created_at|dt }} по данным {{ prediction.base_year }} года.</p>
+    {% elif item.is_branch %}
+      <p class="muted">Модель прогноза построена для головных организаций; для филиалов прогноз не рассчитывается.</p>
+    {% else %}
+      <p class="muted">Прогноз для организации отсутствует. Постройте его в разделе «Прогноз».</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if table and table.rows %}
+<div class="card">
+  <h2>Основные показатели эффективности</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>Показатель</th>{% for year in table.years %}<th class="num">{{ year }}</th>{% endfor %}
+      <th class="num">Медиана РФ</th><th class="num">Медиана региона</th><th class="num">Медиана ведомства</th></tr>
+    {% for row in table.rows %}
+    <tr><td><b>{{ row.code|upper|replace('E', 'E.') }}</b> {{ row.title }}</td>
+      {% for cell in row.cells %}
+      <td class="num">{% if cell.passed is none %}{{ cell.value|num }}{% else %}<span class="{{ 'pass' if cell.passed else 'fail' }}" title="медиана по РФ: {{ cell.median|num }}">{{ cell.value|num }}</span>{% endif %}</td>
+      {% endfor %}
+      <td class="num">{{ row.cells[-1].median|num }}</td><td class="num">{{ row.median_region|num }}</td><td class="num">{{ row.median_founder|num }}</td></tr>
+    {% endfor %}
+    <tr><td><b>Выполнено показателей / класс</b></td>
+      {% for year in table.years %}<td class="num">{% if year in table.counts %}{{ table.counts[year] }} · {{ class_badge(table.classes[year]) }}{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+      <td colspan="3" class="muted small">зелёным отмечены значения не ниже медианы по России, красным — ниже</td></tr>
+  </table></div>
+  {% if chart %}<div class="chart" style="margin-top:12px">{{ chart|safe }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if explanation.contributions or explanation.errors %}
+<div class="grid c2">
+  {% if explanation.contributions %}
+  <div class="card">
+    <h2>Что повлияло на прогноз</h2>
+    <p class="muted small">Изменение вероятности предсказанного класса при замене признака типичным значением.
+      Синий — признак повышает вероятность, красный — понижает.</p>
+    {% for row in explanation.contributions %}
+    <div class="contrib" style="margin-bottom:6px">
+      <div class="track"><i class="{{ 'pos' if row.contribution >= 0 else 'neg' }}" style="width: {{ row.width }}%"></i></div>
+      <span class="nowrap">{{ '+' if row.contribution >= 0 else '−' }}{{ (row.contribution|abs * 100)|round(1) }} п.п.</span>
+      <span>{{ row.title }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if explanation.errors %}
+  <div class="card">
+    <h2>Чем профиль отличается от типичного</h2>
+    <p class="muted small">Показатели, которые автокодировщик восстановил с наибольшей ошибкой: они хуже всего согласуются с остальными данными организации.</p>
+    <table class="data">
+      <tr><th>Показатель</th><th class="num">Ошибка</th><th class="num">Отклонение, σ</th></tr>
+      {% for row in explanation.errors %}
+      <tr><td>{{ row.title }}</td><td class="num">{{ row.error|num(2) }}</td><td class="num">{{ row.value|num(2) }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if extra_sections %}
+<div class="card">
+  <h2>Дополнительные характеристики, {{ extra_year }} год</h2>
+  <div class="grid c2">
+    {% for section in extra_sections %}
+    <div>
+      <h3>{{ section.name }}</h3>
+      <div class="table-wrap"><table class="data">
+        <tr><th>Показатель</th><th class="num">Значение</th><th class="num">Год назад</th></tr>
+        {% for row in section.rows %}
+        <tr><td>{{ row.name }}{% if row.unit %} <span class="muted small">({{ row.unit }})</span>{% endif %}</td>
+          <td class="num">{{ row.value|num }}</td><td class="num muted">{{ row.previous|num }}</td></tr>
+        {% endfor %}
+      </table></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card" id="notes">
+  <h2>Заметки аналитиков</h2>
+  {% for note in notes %}
+  <div class="note">
+    <div class="muted small">{{ note.user.full_name or note.user.login }} · {{ note.created_at|dt }}
+      {% if has_role('admin', 'analyst') %}
+      <form method="post" class="inline" data-confirm="Удалить заметку?">{{ csrf() }}
+        <input type="hidden" name="action" value="delete_note"><input type="hidden" name="note_id" value="{{ note.id }}">
+        <button class="btn danger small" type="submit">удалить</button></form>{% endif %}</div>
+    <div>{{ note.text }}</div>
+  </div>
+  {% else %}<p class="muted">Заметок пока нет.</p>{% endfor %}
+  {% if has_role('admin', 'analyst') %}
+  <form method="post">{{ csrf() }}
+    <div class="field"><label for="text">Новая заметка</label>
+      <textarea id="text" name="text" maxlength="4000" required placeholder="Вывод по результатам анализа, причина отклонения, поручение…"></textarea></div>
+    <div class="actions" style="margin-top:8px"><button class="btn" type="submit">Добавить заметку</button></div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

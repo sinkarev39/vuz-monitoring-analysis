@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Данные{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Данные</h1>
+    <p class="lead">Наборы данных мониторинга: сбор с сайта, загрузка из файлов, просмотр и выгрузка. Рабочий набор используется для обучения моделей и прогноза.</p>
+  </div>
+</div>
+
+{% if job and job.status == 'running' %}
+<div class="card" data-poll-url="{{ url_for('data.job_state') }}">
+  <h2>Выполняется сбор данных</h2>
+  <div class="progress"><i style="width: {{ (job.progress * 100)|round }}%"></i></div>
+  <p class="poll-message muted" style="margin-top:8px">{{ job.message }}</p>
+</div>
+{% elif job and job.status == 'failed' %}
+<div class="flash error">Последний сбор данных завершился ошибкой. {{ job.message }}</div>
+{% elif job and job.status == 'done' %}
+<div class="flash success">Сбор данных завершён. {{ job.message }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>Наборы данных</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>№</th><th>Название</th><th>Источник</th><th>Годы</th><th class="num">Записей</th><th>Создан</th><th>Действия</th></tr>
+    {% for row in datasets %}
+    <tr>
+      <td>{{ row.id }}</td>
+      <td><a href="{{ url_for('data.detail', dataset_id=row.id) }}">{{ row.name }}</a>
+        {% if active and active.id == row.id %}<span class="badge ok">рабочий</span>{% endif %}
+        {% if row.description %}<div class="muted small">{{ row.description }}</div>{% endif %}</td>
+      <td>{{ 'сайт мониторинга' if row.source == 'site' else 'файл' }}</td>
+      <td>{{ row.years }}</td>
+      <td class="num">{{ row.rows_count|num }}</td>
+      <td class="nowrap">{{ row.created_at|dt }}</td>
+      <td><div class="actions">
+        <a class="btn secondary small" href="{{ url_for('data.download', dataset_id=row.id) }}">Скачать ZIP</a>
+        {% if not (active and active.id == row.id) %}
+        <form method="post" action="{{ url_for('data.activate', dataset_id=row.id) }}" class="inline"
+              data-confirm="Сделать набор рабочим? Значения показателей в базе данных будут заменены.">{{ csrf() }}
+          <button class="btn secondary small" type="submit">Сделать рабочим</button></form>
+        <form method="post" action="{{ url_for('data.delete', dataset_id=row.id) }}" class="inline"
+              data-confirm="Удалить набор данных вместе с файлами?">{{ csrf() }}
+          <button class="btn danger small" type="submit">Удалить</button></form>
+        {% endif %}
+      </div></td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="muted">Наборов данных пока нет. Соберите данные с сайта или загрузите файлы.</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Собрать с сайта мониторинга</h2>
+    <p class="muted small">Источник — открытые информационно-аналитические материалы на monitoring.miccedu.ru.
+      Страницы кэшируются на диске: повторный сбор не нагружает сайт. Полный сбор за пять лет занимает около 30 минут.</p>
+    <form method="post" action="{{ url_for('data.collect') }}">{{ csrf() }}
+      <div class="field"><label>Годы мониторинга</label>
+        <div class="checks">
+          {% for year in years %}<label><input type="checkbox" name="years" value="{{ year }}" {{ 'checked' if year in default_years }}> {{ year }}</label>{% endfor %}
+        </div></div>
+      <div class="form-row" style="margin-top:12px">
+        <div class="field"><label for="limit">Ограничить число организаций</label>
+          <input type="number" id="limit" name="limit" min="0" placeholder="без ограничения">
+          <span class="hint">для пробного запуска</span></div>
+        <div class="field wide"><label>&nbsp;</label>
+          <div class="checks"><label><input type="checkbox" name="load_to_db" value="1" checked> после сбора сделать набор рабочим</label></div></div>
+      </div>
+      <button class="btn" type="submit">Запустить сбор</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Загрузить из файлов</h2>
+    <p class="muted small">ZIP-архив, полученный кнопкой «Скачать ZIP», или пять CSV-файлов набора:
+      institutions.csv, main_indicators.csv, medians.csv, extra_indicators.csv, indicator_dictionary.csv.</p>
+    <form method="post" action="{{ url_for('data.upload') }}" enctype="multipart/form-data">{{ csrf() }}
+      <div class="form-row"><div class="field wide"><label for="files">Файлы набора данных</label>
+        <input type="file" id="files" name="files" multiple accept=".zip,.csv" required></div></div>
+      <div class="form-row"><div class="field wide"><label for="name">Название набора</label>
+        <input type="text" id="name" name="name" maxlength="128" placeholder="например: Мониторинг 2026 (предварительные данные)"></div></div>
+      <div class="form-row"><div class="field wide"><label for="description">Описание</label>
+        <input type="text" id="description" name="description" maxlength="1000"></div></div>
+      <button class="btn" type="submit">Загрузить</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
