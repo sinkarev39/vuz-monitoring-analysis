@@ -137,6 +137,9 @@ def parse_year_index(html: str) -> list:
     if table is None:
         return []
     regions, seen = [], set()
+    # В материалах 2021–2023 годов подписей округов нет вовсе: тогда округ
+    # остаётся неизвестным (пустая строка) и восстанавливается по другим годам
+    has_labels = table.find("div", class_="n_fo_name") is not None
     for link in table.find_all("a"):
         match = re.search(r"material\.php\?type=2&id=(\d+)", link.get("href", ""))
         if not match or int(match.group(1)) in seen:
@@ -146,7 +149,10 @@ def parse_year_index(html: str) -> list:
         # У блока новых регионов подписи нет, поэтому задаём её явно.
         block = link.find_parent("div")
         label = block.find("div", class_="n_fo_name") if block is not None else None
-        district = clean_text(label) if label is not None else "Новые регионы"
+        if label is not None:
+            district = clean_text(label)
+        else:
+            district = "Новые регионы" if has_labels else ""
         regions.append(RegionRef(int(match.group(1)), clean_text(link), district))
     return regions
 

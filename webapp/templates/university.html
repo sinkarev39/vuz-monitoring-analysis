@@ -60,17 +60,19 @@
 <div class="card">
   <h2>Основные показатели эффективности</h2>
   <div class="table-wrap"><table class="data">
-    <tr><th>Показатель</th>{% for year in table.years %}<th class="num">{{ year }}</th>{% endfor %}
+    {# В таблице — последние шесть лет; полная динамика показана на графиках ниже #}
+    {% set shown = table.years[-6:] %}
+    <tr><th>Показатель</th>{% for year in shown %}<th class="num">{{ year }}</th>{% endfor %}
       <th class="num">Медиана РФ</th><th class="num">Медиана региона</th><th class="num">Медиана ведомства</th></tr>
     {% for row in table.rows %}
     <tr><td><b>{{ row.code|upper|replace('E', 'E.') }}</b> {{ row.title }}</td>
-      {% for cell in row.cells %}
+      {% for cell in row.cells[-6:] %}
       <td class="num">{% if cell.passed is none %}{{ cell.value|num }}{% else %}<span class="{{ 'pass' if cell.passed else 'fail' }}" title="медиана по РФ: {{ cell.median|num }}">{{ cell.value|num }}</span>{% endif %}</td>
       {% endfor %}
       <td class="num">{{ row.cells[-1].median|num }}</td><td class="num">{{ row.median_region|num }}</td><td class="num">{{ row.median_founder|num }}</td></tr>
     {% endfor %}
     <tr><td><b>Выполнено показателей / класс</b></td>
-      {% for year in table.years %}<td class="num">{% if year in table.counts %}{{ table.counts[year] }} · {{ class_badge(table.classes[year]) }}{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+      {% for year in shown %}<td class="num">{% if year in table.counts %}{{ table.counts[year] }} · {{ class_badge(table.classes[year]) }}{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
       <td colspan="3" class="muted small">зелёным отмечены значения не ниже медианы по России, красным — ниже</td></tr>
   </table></div>
   {% if chart %}<div class="chart" style="margin-top:12px">{{ chart|safe }}</div>{% endif %}

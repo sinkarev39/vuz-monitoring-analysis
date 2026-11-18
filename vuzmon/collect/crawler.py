@@ -148,6 +148,31 @@ class MonitoringCrawler:
 # --------------------------------------------------------------------------
 # Преобразование записей в таблицы и сохранение
 # --------------------------------------------------------------------------
+UNKNOWN_DISTRICT = "Не указан"
+
+
+def normalize_regions(institutions: pd.DataFrame) -> pd.DataFrame:
+    """
+    Приводит сведения о регионах к единому виду во всех годах.
+
+    * Федеральный округ: в материалах части лет он не указан, поэтому берётся
+      наиболее частое известное значение для того же кода региона.
+    * Название региона: на сайте встречаются варианты написания («г. Москва»
+      и «г.Москва»); используется написание последнего года.
+    """
+    frame = institutions.copy()
+    frame["federal_district"] = frame["federal_district"].fillna("").replace(UNKNOWN_DISTRICT, "")
+    known = frame[frame["federal_district"] != ""]
+    if not known.empty:
+        by_region = known.groupby("region_id")["federal_district"].agg(lambda s: s.mode().iloc[0])
+        frame["federal_district"] = frame["region_id"].map(by_region).fillna(frame["federal_district"])
+    frame["federal_district"] = frame["federal_district"].replace("", UNKNOWN_DISTRICT)
+    latest_names = frame.sort_values("year").drop_duplicates("region_id", keep="last") \
+        .set_index("region_id")["region"]
+    frame["region"] = frame["region_id"].map(latest_names)
+    return frame
+
+
 def records_to_frames(records: list) -> dict:
     """
     Сводит разобранные записи в набор таблиц pandas:
@@ -223,7 +248,7 @@ def records_to_frames(records: list) -> dict:
 
     main_columns = ["inst_id", "page_year", "value_year"] + list(config.MAIN_INDICATORS.values())
     frames = {
-        "institutions": pd.DataFrame(inst_rows),
+        "institutions": normalize_regions(pd.DataFrame(inst_rows)) if inst_rows else pd.DataFrame(inst_rows),
         "main": pd.DataFrame(main_rows).reindex(columns=main_columns),
         "medians": pd.DataFrame(median_rows),
         "extra": pd.DataFrame(extra_rows),
