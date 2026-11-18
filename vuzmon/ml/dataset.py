@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from vuzmon.db.loader import consolidate_main
+from vuzmon.tables import consolidate_main, institution_medians
 
 # Показатели, по которым определяется класс результативности
 HEAD_TARGET_INDICATORS = ("e1", "e2", "e3", "e4", "e8")     # головные организации
@@ -75,20 +75,6 @@ def rf_medians(medians: pd.DataFrame) -> pd.DataFrame:
     table = medians.groupby(["year", "code"])["median_rf"] \
         .agg(lambda s: s.dropna().mode().iloc[0] if s.notna().any() else np.nan)
     return table.unstack("code")
-
-
-def institution_medians(medians: pd.DataFrame) -> pd.DataFrame:
-    """
-    Медианы по России в разрезе организаций: строка — (организация, год),
-    столбцы — med_e1 ... med_e8.
-
-    Медиана берётся со страницы самой организации, потому что для показателя
-    E.8 она зависит от отраслевой специфики (у медицинских, творческих,
-    спортивных вузов дополнительный показатель свой).
-    """
-    table = medians.pivot_table(index=["inst_id", "year"], columns="code", values="median_rf",
-                                aggfunc="first")
-    return table.add_prefix("med_").reset_index()
 
 
 def founder_category(name) -> str:

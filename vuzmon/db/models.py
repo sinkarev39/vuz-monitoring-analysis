@@ -159,9 +159,10 @@ class IndicatorValue(Base):
     """Значение показателя организации за год (основная таблица фактов)."""
     __tablename__ = "indicator_values"
     # Составной первичный ключ без суррогатного идентификатора экономит место
-    # и одновременно служит индексом для выборки «все показатели вуза за год»
-    __table_args__ = (Index("ix_values_indicator_year", "indicator_id", "year"),
-                      {"sqlite_with_rowid": False})
+    # и одновременно служит индексом для выборки «все показатели вуза за год».
+    # Отдельный индекс по показателю не создаётся: он удвоил бы размер файла
+    # базы, а выборки по показателю выполняются редко и на небольшом объёме
+    __table_args__ = {"sqlite_with_rowid": False}
 
     university_id: Mapped[int] = mapped_column(ForeignKey("universities.id"), primary_key=True)
     year: Mapped[int] = mapped_column(Integer, primary_key=True)

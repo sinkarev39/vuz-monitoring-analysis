@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+{# Страница входа в систему (единственная страница, доступная без авторизации). #}
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — Анализ данных мониторинга вузов</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="login-page">
+  <form class="login-card" method="post" autocomplete="on">
+    <h1>Система интеллектуального анализа данных мониторинга вузов</h1>
+    <p class="muted">Войдите под своей учётной записью</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="field">
+      <label for="login">Логин</label>
+      <input type="text" id="login" name="login" required autofocus maxlength="64">
+    </div>
+    <div class="field">
+      <label for="password">Пароль</label>
+      <input type="password" id="password" name="password" required maxlength="128">
+    </div>
+    <button class="btn" type="submit">Войти</button>
+    <p class="muted small" style="margin-top:14px">
+      Учётную запись выдаёт администратор системы. Автор: Шинкарев С. Д.
+    </p>
+  </form>
+</div>
+</body>
+</html>

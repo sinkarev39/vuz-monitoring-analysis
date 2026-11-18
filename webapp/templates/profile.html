@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Личный кабинет{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Личный кабинет</h1>
+    <p class="lead">Сведения об учётной записи, смена пароля и история собственных действий.</p>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Мои сведения</h2>
+    <form method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="details">
+      <table class="data kv">
+        <tr><td>Логин</td><td><b>{{ user.login }}</b></td></tr>
+        <tr><td>Роль</td><td>{{ user.role.title }} <span class="muted small">— {{ user.role.description }}</span></td></tr>
+        <tr><td>Зарегистрирован</td><td>{{ user.created_at|dt }}</td></tr>
+        <tr><td>Последний вход</td><td>{{ user.last_login_at|dt }}</td></tr>
+      </table>
+      <div class="form-row" style="margin-top:12px">
+        <div class="field wide"><label for="full_name">Фамилия, имя, отчество</label>
+          <input type="text" id="full_name" name="full_name" value="{{ user.full_name }}" maxlength="128"></div>
+      </div>
+      <div class="form-row">
+        <div class="field wide"><label for="position">Должность</label>
+          <input type="text" id="position" name="position" value="{{ user.position }}" maxlength="128"></div>
+        <div class="field wide"><label for="email">Электронная почта</label>
+          <input type="email" id="email" name="email" value="{{ user.email }}" maxlength="128"></div>
+      </div>
+      <button class="btn" type="submit">Сохранить</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Смена пароля</h2>
+    <form method="post" autocomplete="off">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="password">
+      <div class="form-row"><div class="field wide"><label for="old_password">Текущий пароль</label>
+        <input type="password" id="old_password" name="old_password" required></div></div>
+      <div class="form-row">
+        <div class="field wide"><label for="new_password">Новый пароль</label>
+          <input type="password" id="new_password" name="new_password" required minlength="8">
+          <span class="hint">Не менее 8 символов, буквы и цифры</span></div>
+        <div class="field wide"><label for="repeat_password">Повтор нового пароля</label>
+          <input type="password" id="repeat_password" name="repeat_password" required minlength="8"></div>
+      </div>
+      <button class="btn" type="submit">Изменить пароль</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Мои последние действия</h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>Дата и время</th><th>Действие</th><th>Описание</th></tr>
+      {% for row in actions %}
+      <tr><td class="nowrap">{{ row.created_at|dt }}</td><td>{{ row.action }}</td><td>{{ row.details }}</td></tr>
+      {% else %}<tr><td colspan="3" class="muted">Действий пока нет.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="card">
+    <h2>Мои эксперименты</h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>№</th><th>Название</th><th>Вид модели</th><th>Состояние</th></tr>
+      {% for row in experiments %}
+      <tr><td>{{ row.id }}</td>
+        <td>{% if has_role('admin', 'analyst') %}<a href="{{ url_for('models.detail', experiment_id=row.id) }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}</td>
+        <td>{{ model_types.get(row.model_type, row.model_type) }}</td><td>{{ row.status }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">Вы ещё не запускали обучение моделей.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+</div>
+{% endblock %}

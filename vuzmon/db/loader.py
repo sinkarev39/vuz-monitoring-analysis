@@ -15,8 +15,11 @@ import re
 import pandas as pd
 from sqlalchemy import delete, insert, select
 
+from vuzmon.config import MAIN_INDICATORS
+
 from vuzmon.db.models import (FederalDistrict, FounderGroup, Indicator, IndicatorMedian,
                               IndicatorValue, Region, University)
+from vuzmon.tables import consolidate_main, institution_medians
 
 # Профильные характеристики организации, которые сборщик кладёт в паспорт
 PROFILE_INDICATORS = {
@@ -53,22 +56,6 @@ def make_short_name(name: str, is_branch: bool = False, city: str = "") -> str:
     if is_branch:
         short = f"{short} — филиал ({city})" if city else f"{short} — филиал"
     return short[:255]
-
-
-def consolidate_main(main: pd.DataFrame) -> pd.DataFrame:
-    """
-    Оставляет по одной строке основных показателей на организацию и год.
-
-    Одно и то же значение публикуется на страницах нескольких лет (в составе
-    пятилетней динамики). Приоритет отдаётся странице «своего» года, а при её
-    отсутствии — ближайшей более поздней.
-    """
-    frame = main.copy()
-    frame["_other_year"] = (frame["page_year"] != frame["value_year"]).astype(int)
-    frame = frame.sort_values(["inst_id", "value_year", "_other_year", "page_year"])
-    frame = frame.drop_duplicates(["inst_id", "value_year"], keep="first")
-    return frame.drop(columns=["_other_year", "page_year"]).rename(columns={"value_year": "year"}) \
-        .reset_index(drop=True)
 
 
 def _most_frequent(series: pd.Series):
@@ -148,6 +135,14 @@ def load_monitoring_frames(session, frames: dict, progress=None) -> dict:
             indicators[column] = Indicator(column=column, code=column, kind="profile",
                                            section="Профиль подготовки", name=name, unit=unit)
             session.add(indicators[column])
+    # Порог организации: медиана по России со страницы самой организации
+    # (для показателя E.8 она зависит от отраслевой специфики)
+    for code, column in MAIN_INDICATORS.items():
+        if f"med_{column}" not in indicators:
+            indicators[f"med_{column}"] = Indicator(
+                column=f"med_{column}", code=code, kind="threshold", section="Пороговые значения",
+                name=f"Медиана по России для показателя {code} (порог для организации)", unit="")
+            session.add(indicators[f"med_{column}"])
     session.flush()
     stats["indicators"] = len(indicators)
 
@@ -170,6 +165,7 @@ def load_monitoring_frames(session, frames: dict, progress=None) -> dict:
     value_rows = melt(main[main["inst_id"].isin(known_ids)], "year")
     value_rows += melt(extra, "year")
     value_rows += melt(institutions, "year")
+    value_rows += melt(institution_medians(frames["medians"]), "year")
     _insert_chunks(session, IndicatorValue, value_rows)
     stats["indicator_values"] = len(value_rows)
 

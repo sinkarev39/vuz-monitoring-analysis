@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+{# Базовый шаблон: боковое меню, верхняя панель с «хлебными крошками», область содержимого. #}
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Обзор{% endblock %} — Анализ данных мониторинга вузов</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <b>Интеллектуальный анализ данных мониторинга вузов</b>
+      <span>информационно-аналитическая система</span>
+      <button class="menu-toggle" type="button" id="menu-toggle" aria-label="Открыть меню">☰</button>
+    </div>
+    <ul class="menu">
+      {% for endpoint, title, icon in menu %}
+      <li><a href="{{ url_for(endpoint) }}"
+             class="{{ 'active' if active_menu == endpoint else '' }}">
+        <span class="icon">{{ icon }}</span>{{ title }}</a></li>
+      {% endfor %}
+    </ul>
+    <div class="sidebar-footer">Автор: Шинкарев С. Д.<br>группа о.ИЗДт 23.2/Б3-22</div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <nav class="crumbs" aria-label="Навигационная цепочка">
+        <a href="{{ url_for('main.dashboard') }}">Главная</a>
+        {% for text, link in crumbs or [] %}
+          <span class="sep">/</span>{% if link %}<a href="{{ link }}">{{ text }}</a>{% else %}<span>{{ text }}</span>{% endif %}
+        {% endfor %}
+      </nav>
+      <div class="userbox">
+        <div class="right">
+          <div>{{ user.full_name or user.login }}</div>
+          <div class="role">{{ user.role.title }}</div>
+        </div>
+        <form method="post" action="{{ url_for('auth.logout') }}" class="inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="btn secondary small" type="submit">Выйти</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="footer">
+      Система интеллектуального анализа данных мониторинга вузов · выпускная квалификационная работа ·
+      Шинкарев Сергей Дмитриевич · {{ now.year }}
+    </footer>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
