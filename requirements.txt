@@ -1,0 +1,37 @@
+# Система интеллектуального анализа данных мониторинга вузов
+# Автор: Шинкарев Сергей Дмитриевич, группа о.ИЗДт 23.2/Б3-22
+#
+# Установка в пустое виртуальное окружение (Python 3.11–3.13):
+#     python -m venv .venv
+#     .venv\Scripts\activate          (Windows)   или   source .venv/bin/activate   (Linux, macOS)
+#     pip install -r requirements.txt
+#
+# Указаны минимальные версии; pip установит последние стабильные.
+# Версии, на которых система проверена, перечислены в README.md.
+
+# --- веб-приложение и база данных ---
+flask>=3.1
+sqlalchemy>=2.0
+
+# --- машинное обучение ---
+torch>=2.2.2
+numpy>=1.26.4
+# для компьютеров Mac с процессором Intel последняя сборка PyTorch — 2.2.2, она требует NumPy 1.x
+numpy<2; sys_platform == "darwin" and platform_machine == "x86_64"
+pandas>=2.2
+scikit-learn>=1.5
+joblib>=1.4
+matplotlib>=3.9
+
+# --- сбор данных с сайта мониторинга ---
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.2
+
+# --- формирование документов Word и Excel ---
+python-docx>=1.1
+openpyxl>=3.1
+
+# --- блокноты Jupyter и автоматические тесты (для работы веб-приложения не обязательны) ---
+notebook>=7.0
+pytest>=8.0

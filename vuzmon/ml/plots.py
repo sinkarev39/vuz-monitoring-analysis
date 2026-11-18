@@ -11,10 +11,14 @@
 """
 
 import io
+import sys
 
 import matplotlib
 
-matplotlib.use("Agg")   # построение без оконной системы — обязательно для сервера
+# На сервере графики строятся без оконной системы (режим «Agg»). В блокноте
+# Jupyter модуль pyplot уже загружен со своим режимом вывода — его не трогаем
+if "matplotlib.pyplot" not in sys.modules:
+    matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402

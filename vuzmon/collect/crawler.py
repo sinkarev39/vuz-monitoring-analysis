@@ -291,3 +291,14 @@ def load_frames(data_dir=config.MONITORING_DIR) -> dict:
     data_dir = Path(data_dir)
     return {name: pd.read_csv(data_dir / filename, encoding="utf-8")
             for name, filename in DATASET_FILES.items()}
+
+
+def load_frames_from_url(base_url: str) -> dict:
+    """
+    Загружает набор данных напрямую по ссылке: base_url — адрес каталога, в
+    котором лежат CSV-файлы набора (например, «сырой» адрес каталога
+    data/monitoring в публичном git-репозитории).
+    """
+    base_url = base_url.rstrip("/")
+    return {name: pd.read_csv(f"{base_url}/{filename}", encoding="utf-8")
+            for name, filename in DATASET_FILES.items()}
