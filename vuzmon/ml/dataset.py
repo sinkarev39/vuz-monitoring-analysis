@@ -44,6 +44,10 @@ FOUNDER_CATEGORIES = (
     ("просвещения", "minpros"),
     ("частн", "private"),
 )
+FOUNDER_CATEGORY_CODES = ("minobr", "minzdrav", "minselhoz", "mincult", "minpros", "private", "regional",
+                          "other_federal")
+# Федеральные округа в том написании, которое используется на сайте мониторинга
+FEDERAL_DISTRICTS = ("ЦФО", "СЗФО", "ЮФО", "СКФО", "ПФО", "УФО", "СФО", "ДФО")
 # Отраслевая специфика деятельности: ключевое слово -> группа
 SPECIFICS_CATEGORIES = (
     ("медицин", "spec_med"), ("сельскохоз", "spec_agro"), ("творческ", "spec_art"),
@@ -64,10 +68,27 @@ def target_indicators(is_branch: bool) -> tuple:
 
 
 def rf_medians(medians: pd.DataFrame) -> pd.DataFrame:
-    """Таблица медиан по России: строки — годы, столбцы — показатели e1..e8."""
+    """
+    Сводная таблица медиан по России: строки — годы, столбцы — показатели.
+    Используется для справки; при расчётах берутся медианы конкретной организации.
+    """
     table = medians.groupby(["year", "code"])["median_rf"] \
         .agg(lambda s: s.dropna().mode().iloc[0] if s.notna().any() else np.nan)
     return table.unstack("code")
+
+
+def institution_medians(medians: pd.DataFrame) -> pd.DataFrame:
+    """
+    Медианы по России в разрезе организаций: строка — (организация, год),
+    столбцы — med_e1 ... med_e8.
+
+    Медиана берётся со страницы самой организации, потому что для показателя
+    E.8 она зависит от отраслевой специфики (у медицинских, творческих,
+    спортивных вузов дополнительный показатель свой).
+    """
+    table = medians.pivot_table(index=["inst_id", "year"], columns="code", values="median_rf",
+                                aggfunc="first")
+    return table.add_prefix("med_").reset_index()
 
 
 def founder_category(name) -> str:
@@ -76,7 +97,7 @@ def founder_category(name) -> str:
     for keyword, category in FOUNDER_CATEGORIES:
         if keyword in text:
             return category
-    if "област" in text or "правительств" in text or "республик" in text or "город" in text:
+    if "субъект" in text or "муниципал" in text:
         return "regional"
     return "other_federal"
 
@@ -124,8 +145,12 @@ def build_panel(frames: dict) -> pd.DataFrame:
     """
     inst = frames["institutions"].copy()
     main = consolidate_main(frames["main"])
-    medians = rf_medians(frames["medians"])
+    medians = institution_medians(frames["medians"])
     e_columns = [c for c in main.columns if c.startswith("e")]
+    # Не у каждой организации есть все показатели — недостающие столбцы медиан создаём пустыми
+    for column in e_columns:
+        if f"med_{column}" not in medians.columns:
+            medians[f"med_{column}"] = np.nan
 
     panel = inst.merge(main, on=["inst_id", "year"], how="left")
     # Значения предыдущих лет: сдвигаем год и присоединяем с суффиксом
@@ -139,11 +164,11 @@ def build_panel(frames: dict) -> pd.DataFrame:
     following["year"] = following["year"] - 1
     panel = panel.merge(following.rename(columns={c: f"{c}_next" for c in e_columns}),
                         on=["inst_id", "year"], how="left")
-    # Медианы текущего и следующего года
-    panel = panel.merge(medians.add_prefix("med_"), left_on="year", right_index=True, how="left")
-    next_medians = medians.add_prefix("mednext_")
-    next_medians.index = next_medians.index - 1
-    panel = panel.merge(next_medians, left_on="year", right_index=True, how="left")
+    # Медианы текущего и следующего года (со страницы самой организации)
+    panel = panel.merge(medians, on=["inst_id", "year"], how="left")
+    next_medians = medians.rename(columns={f"med_{c}": f"mednext_{c}" for c in e_columns})
+    next_medians["year"] = next_medians["year"] - 1
+    panel = panel.merge(next_medians, on=["inst_id", "year"], how="left")
     panel = panel.merge(frames["extra"], on=["inst_id", "year"], how="left")
 
     # Отраслевая специфика публикуется не во все годы: берём известное значение организации
@@ -179,7 +204,7 @@ def build_samples(frames: dict, include_branches: bool = False) -> SampleSet:
     if not include_branches:
         panel = panel[panel["is_branch"] == 0].reset_index(drop=True)
 
-    features = pd.DataFrame(index=panel.index)
+    features = {}   # имя признака -> столбец значений; таблица создаётся в конце одним действием
     all_codes = sorted(set(HEAD_TARGET_INDICATORS) | (set(BRANCH_TARGET_INDICATORS) if include_branches else set()))
 
     # --- 1. Основные показатели: положение относительно медианы и динамика
@@ -194,8 +219,7 @@ def build_samples(frames: dict, include_branches: bool = False) -> SampleSet:
     features["pass_count"] = current_count
 
     # --- 2. Дополнительные характеристики мониторинга (столбцы p1 ... p56)
-    extra_columns = [c for c in frames["extra"].columns if c.startswith("p")]
-    for column in extra_columns:
+    for column in [c for c in frames["extra"].columns if c.startswith("p")]:
         features[column] = panel[column]
 
     # --- 3. Профиль подготовки: доли контингента по отраслям наук
@@ -216,17 +240,17 @@ def build_samples(frames: dict, include_branches: bool = False) -> SampleSet:
     features["postgrad_per_100_students"] = panel["p17"] / students * 100.0
 
     # --- 5. Категориальные признаки в виде индикаторных столбцов
-    for district in sorted(frames["institutions"]["federal_district"].dropna().unique()):
+    for district in FEDERAL_DISTRICTS:
         features[f"fo_{district}"] = (panel["federal_district"] == district).astype(float)
     categories = panel["founder_group"].map(founder_category)
-    for category in ("minobr", "minzdrav", "minselhoz", "mincult", "minpros", "private", "regional",
-                     "other_federal"):
+    for category in FOUNDER_CATEGORY_CODES:
         features[f"founder_{category}"] = (categories == category).astype(float)
-    specifics = panel["specifics"].fillna("").str.lower()
+    specifics = panel["specifics"].fillna("").astype(str).str.lower()
     for keyword, column in SPECIFICS_CATEGORIES:
         features[column] = specifics.str.contains(keyword).astype(float)
     if include_branches:
         features["is_branch"] = panel["is_branch"].astype(float)
+    features = pd.DataFrame(features, index=panel.index)
 
     # --- Целевой класс: положение организации в мониторинге следующего года
     next_count = _pass_count(panel, "_next", "mednext_")
