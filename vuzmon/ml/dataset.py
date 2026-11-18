@@ -94,6 +94,16 @@ def _safe_ratio(values: pd.Series, base) -> pd.Series:
     return values / base
 
 
+def _margin(ratio: pd.Series) -> pd.Series:
+    """
+    «Запас» показателя до медианы: логарифм отношения, ограниченный [-3; 3].
+    Ноль — показатель равен медиане, знак показывает сторону, а модуль —
+    удалённость от порога. Нулевое или неизвестное значение даёт -3.
+    """
+    floor = float(np.exp(-3.0))
+    return np.log(ratio.fillna(0.0).clip(lower=floor)).clip(-3.0, 3.0)
+
+
 def _growth(current: pd.Series, previous: pd.Series) -> pd.Series:
     """Относительный прирост за год, ограниченный диапазоном [-1; 3]."""
     previous = previous.where(previous.abs() > 1e-9)
@@ -106,13 +116,15 @@ class SampleSet:
     features: pd.DataFrame     # матрица «объект — признак»
     target: pd.Series          # класс следующего года (NaN, если ещё не известен)
     meta: pd.DataFrame         # inst_id, year, name, is_branch, current_class ...
+    aux_target: pd.DataFrame = None   # выполнение каждого из пяти показателей в следующем году (0/1)
 
     def subset(self, mask) -> "SampleSet":
         """Часть выборки по логической маске."""
         mask = np.asarray(mask)
+        aux = self.aux_target[mask].reset_index(drop=True) if self.aux_target is not None else None
         return SampleSet(self.features[mask].reset_index(drop=True),
                          self.target[mask].reset_index(drop=True),
-                         self.meta[mask].reset_index(drop=True))
+                         self.meta[mask].reset_index(drop=True), aux)
 
     def labeled(self) -> "SampleSet":
         """Только объекты с известным классом следующего года."""
@@ -201,8 +213,16 @@ def build_samples(frames: dict, include_branches: bool = False) -> SampleSet:
         features[f"{code}_ratio_lag2"] = _safe_ratio(panel[f"{code}_lag2"], median)
         features[f"{code}_growth"] = _growth(panel[code], panel[f"{code}_lag1"])
         features[f"{code}_pass"] = ((panel[code] >= median) & (panel[code] > 0)).astype(float)
+        features[f"{code}_margin"] = _margin(features[f"{code}_ratio"])
+        features[f"{code}_margin_lag1"] = _margin(features[f"{code}_ratio_lag1"])
     current_count = _pass_count(panel, "", "med_")
     features["pass_count"] = current_count
+    # Упорядоченные запасы: класс меняется, когда через ноль переходит второй
+    # или четвёртый по величине запас, поэтому порядковые статистики — прямой
+    # сигнал близости организации к границе класса
+    ordered = np.sort(np.column_stack([features[f"{code}_margin"] for code in HEAD_TARGET_INDICATORS]), axis=1)
+    for position in range(ordered.shape[1]):
+        features[f"margin_sorted_{position + 1}"] = pd.Series(ordered[:, position], index=panel.index)
 
     # --- 2. Дополнительные характеристики мониторинга (столбцы p1 ... p56)
     for column in [c for c in frames["extra"].columns if c.startswith("p")]:
@@ -242,13 +262,22 @@ def build_samples(frames: dict, include_branches: bool = False) -> SampleSet:
     next_count = _pass_count(panel, "_next", "mednext_")
     target = next_count.map(class_from_count)
 
+    # Вспомогательные цели: будет ли выполнен каждый показатель в следующем году.
+    # Они дают сети пять подсказок на объект вместо одной метки класса
+    aux = {}
+    for code in HEAD_TARGET_INDICATORS:
+        value, median = panel[f"{code}_next"], panel[f"mednext_{code}"]
+        aux[code] = ((value >= median) & (value > 0)).astype(float).where(next_count.notna())
+    aux_target = pd.DataFrame(aux, index=panel.index)
+
     meta = panel[["inst_id", "year", "name", "is_branch", "region", "federal_district",
                   "founder_group"]].copy()
     meta["current_count"] = current_count
     meta["current_class"] = current_count.map(class_from_count)
     meta["next_count"] = next_count
     return SampleSet(features.reset_index(drop=True).astype("float64"),
-                     target.reset_index(drop=True), meta.reset_index(drop=True))
+                     target.reset_index(drop=True), meta.reset_index(drop=True),
+                     aux_target.reset_index(drop=True))
 
 
 def temporal_split(samples: SampleSet, val_year: int = None, test_year: int = None) -> dict:
