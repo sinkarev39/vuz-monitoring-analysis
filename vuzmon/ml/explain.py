@@ -27,7 +27,10 @@ _SUFFIX_TITLES = {
     "ratio_lag2": "отношение к медиане, два года назад",
     "growth": "прирост за год",
     "pass": "выполнение (не ниже медианы)",
+    "margin": "запас до медианы",
+    "margin_lag1": "запас до медианы, год назад",
 }
+_ORDER_WORDS = ("наименьший", "второй по величине", "третий по величине", "четвёртый по величине", "наибольший")
 _OTHER_TITLES = {
     "pass_count": "Число выполненных основных показателей в текущем году",
     "contingent_total": "Приведённый контингент студентов, всего",
@@ -66,6 +69,9 @@ def feature_title(name: str, dictionary: dict = None) -> str:
         return f"Нет данных: {feature_title(name[:-5], dictionary)}"
     if name in _OTHER_TITLES:
         return _OTHER_TITLES[name]
+    match = re.match(r"^margin_sorted_(\d)$", name)
+    if match and 1 <= int(match.group(1)) <= 5:
+        return f"Запас до медианы: {_ORDER_WORDS[int(match.group(1)) - 1]} из пяти показателей"
     match = re.match(r"^(e\d)_(.+)$", name)
     if match and match.group(2) in _SUFFIX_TITLES:
         base = MAIN_INDICATOR_TITLES.get(match.group(1), match.group(1)).split(" (")[0]

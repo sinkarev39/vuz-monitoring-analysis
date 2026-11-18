@@ -22,6 +22,7 @@ if "matplotlib.pyplot" not in sys.modules:
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 # Единая палитра системы. Цвета классов различимы и при нарушениях цветового зрения
 COLORS = {"primary": "#1f4e79", "accent": "#2a7fb8", "grey": "#8c96a5", "light": "#dfe5ec",
@@ -67,11 +68,11 @@ def learning_curves(history: list, best_epoch: int = None):
         axes[1].plot(epochs, [r["val_metric"] for r in history], color=COLORS["warm"], label="валидация")
         axes[1].set(title="Доля верных ответов", xlabel="Эпоха")
     for axis in axes:
+        axis.xaxis.set_major_locator(MaxNLocator(integer=True))   # номера эпох — целые числа
         if best_epoch:
-            axis.axvline(best_epoch, color=COLORS["grey"], linestyle="--", linewidth=1)
-            axis.annotate("лучшая эпоха", (best_epoch, axis.get_ylim()[1]), fontsize=8,
-                          color="#4a5563", ha="center", va="bottom")
-        axis.legend(loc="best")
+            axis.axvline(best_epoch, color=COLORS["grey"], linestyle="--", linewidth=1,
+                         label=f"лучшая эпоха ({best_epoch})")
+        axis.legend(loc="best", fontsize=9)
     figure.tight_layout()
     return figure
 
