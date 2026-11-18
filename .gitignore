@@ -13,3 +13,6 @@ data/cache/
 instance/
 *.log
 .DS_Store
+
+# Наборы данных, загруженные пользователями через интерфейс
+data/datasets/

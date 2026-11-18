@@ -118,6 +118,8 @@ def new():
             "label_smoothing": _number(form, "label_smoothing", 0.0, float, 0.0, 0.3),
             "class_weighted": bool(form.get("class_weighted")),
             "aux_weight": _number(form, "aux_weight", defaults.aux_weight, float, 0.0, 10.0),
+            "structure_weight": _number(form, "structure_weight", defaults.structure_weight, float, 0.0, 1.0),
+            "ensemble_size": _number(form, "ensemble_size", 1, int, 1, 15),
             "scheduler": form.get("scheduler") if form.get("scheduler") in ("none", "plateau", "cosine") else "plateau",
             "seed": _number(form, "seed", 42, int, 0, 10 ** 6),
         }

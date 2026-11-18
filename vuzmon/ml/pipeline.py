@@ -127,6 +127,7 @@ SEARCH_SPACE = {
     "label_smoothing": [0.0, 0.05, 0.1],
     "activation": ["relu", "gelu"],
     "aux_weight": [0.0, 1.0, 2.0, 3.0],
+    "structure_weight": [0.5, 0.75, 1.0],
 }
 
 

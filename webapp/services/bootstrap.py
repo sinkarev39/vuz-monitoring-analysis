@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 
 from vuzmon import config
 from vuzmon.db.loader import load_monitoring_frames
-from vuzmon.db.models import Dataset, Experiment, University
+from vuzmon.db.models import Dataset, Experiment, ExperimentEpoch, Prediction, Setting, University
 from vuzmon.db.session import get_session
 from vuzmon.ml import registry
 from webapp.services import store
@@ -47,6 +47,50 @@ def register_model_file(db, path, name: str = None, user_id: int = None, activat
     return experiment
 
 
+def _register_shipped_models(db) -> None:
+    """Создаёт записи об экспериментах для моделей, поставляемых вместе с системой."""
+    dataset = store.active_dataset(db)
+    for path in sorted(config.MODELS_DIR.glob("model*.pt")):
+        try:
+            # Первая найденная модель каждого вида становится рабочей
+            kind = registry.load_model(path).kind
+            title = "Ансамбль многозадачных сетей (итоговая модель)" if kind == "mlp" \
+                else "Автокодировщик профилей организаций"
+            experiment = register_model_file(db, path, name=title,
+                                             activate=store.active_experiment(db, kind) is None)
+            experiment.dataset_id = dataset.id if dataset else None
+            for record in registry.load_model(path).meta.get("history", []):
+                db.add(ExperimentEpoch(experiment_id=experiment.id, epoch=record["epoch"],
+                                       train_loss=record.get("train_loss"), val_loss=record.get("val_loss"),
+                                       train_metric=record.get("train_metric"),
+                                       val_metric=record.get("val_metric"),
+                                       learning_rate=record.get("learning_rate")))
+            db.commit()
+        except Exception as error:   # повреждённый файл не должен мешать запуску
+            logger.warning("Файл модели %s пропущен: %s", path.name, error)
+
+    # Модели сравнения (softmax-регрессия, случайный лес) описаны в metrics.json
+    summary_path = config.MODELS_DIR / "metrics.json"
+    if not summary_path.exists():
+        return
+    reports = json.loads(summary_path.read_text(encoding="utf-8")).get("reports", {})
+    for filename, item in reports.items():
+        if not (config.MODELS_DIR / filename).exists():
+            continue
+        experiment = Experiment(
+            name=item["name"], model_type=item["type"], status="done", message="Модель поставляется с системой",
+            params_json=json.dumps(item["params"], ensure_ascii=False),
+            metrics_json=json.dumps(item["metrics"], ensure_ascii=False),
+            model_file=store.relative(config.MODELS_DIR / filename), finished_at=datetime.now(),
+            dataset_id=dataset.id if dataset else None)
+        db.add(experiment)
+        db.flush()
+        for record in item.get("history", []):
+            db.add(ExperimentEpoch(experiment_id=experiment.id, epoch=record["epoch"],
+                                   train_loss=record.get("train_loss"), val_loss=record.get("val_loss")))
+    db.commit()
+
+
 def ensure_default_dataset() -> None:
     """Регистрирует поставляемый набор данных и модели, если база ещё не наполнена."""
     db = get_session()
@@ -67,13 +111,24 @@ def ensure_default_dataset() -> None:
                 load_monitoring_frames(db, frames)
 
         if db.scalar(select(func.count()).select_from(Experiment)) == 0:
-            for path in sorted(config.MODELS_DIR.glob("model*.pt")):
-                try:
-                    # Первая найденная модель каждого вида становится активной
-                    kind = registry.load_model(path).kind
-                    has_active = store.active_experiment(db, kind) is not None
-                    register_model_file(db, path, activate=not has_active)
-                except Exception as error:   # повреждённый файл не должен мешать запуску
-                    logger.warning("Файл модели %s пропущен: %s", path.name, error)
+            _register_shipped_models(db)
+
+        # «Своя» организация для страницы обзора: университет имени С.Ю. Витте
+        home = db.get(Setting, "home_university_id")
+        if home is not None and not home.value:
+            own = db.scalars(select(University).where(University.name.like("%Витте%"),
+                                                      University.is_branch.is_(False))).first()
+            if own is not None:
+                home.value = str(own.id)
+                db.commit()
+
+        # Первый прогноз строится автоматически, чтобы разделы не были пустыми
+        if db.scalar(select(func.count()).select_from(Prediction)) == 0 \
+                and store.active_experiment(db, "mlp") is not None and store.active_dataset(db) is not None:
+            from webapp.services import jobs
+            try:
+                jobs.build_forecast(db)
+            except RuntimeError as error:
+                logger.warning("Прогноз при первом запуске не построен: %s", error)
     finally:
         db.close()

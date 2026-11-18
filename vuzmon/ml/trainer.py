@@ -21,7 +21,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from vuzmon.ml import metrics
-from vuzmon.ml.networks import MonitoringAutoencoder, MonitoringMLP
+from vuzmon.ml.networks import MonitoringAutoencoder, MonitoringEnsemble, MonitoringMLP
 
 
 @dataclass
@@ -40,6 +40,8 @@ class TrainConfig:
     label_smoothing: float = 0.0     # сглаживание меток
     class_weighted: bool = False     # веса классов в функции потерь (повышает полноту редкого класса)
     aux_weight: float = 2.0          # вес вспомогательной задачи; 0 — обычная однозадачная сеть
+    structure_weight: float = 0.75   # доля структурной оценки в итоговых вероятностях классов
+    ensemble_size: int = 1           # число сетей в ансамбле (1 — одна сеть)
     scheduler: str = "plateau"       # none / plateau / cosine
     seed: int = 42
 
@@ -116,7 +118,32 @@ def predict_proba(model: nn.Module, features: np.ndarray, batch_size: int = 1024
 def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epoch=None,
                      aux_train=None, aux_val=None) -> TrainResult:
     """
-    Обучает MonitoringMLP.
+    Обучает классификатор: одну сеть или ансамбль из config.ensemble_size сетей.
+
+    Участники ансамбля отличаются только зерном генератора случайных чисел
+    (начальные веса и порядок объектов). В результат попадает история
+    обучения первой сети; функция on_epoch вызывается тоже только для неё.
+    """
+    if config.ensemble_size <= 1:
+        return _train_single(x_train, y_train, x_val, y_val, config, on_epoch, aux_train, aux_val)
+    members, first = [], None
+    for index in range(config.ensemble_size):
+        member_config = TrainConfig.from_dict({**config.to_dict(), "seed": config.seed + index,
+                                               "ensemble_size": 1})
+        outcome = _train_single(x_train, y_train, x_val, y_val, member_config,
+                                on_epoch if index == 0 else None, aux_train, aux_val)
+        members.append(outcome.model)
+        first = first or outcome
+    ensemble = MonitoringEnsemble(members)
+    ensemble.eval()
+    return TrainResult(model=ensemble, history=first.history, best_epoch=first.best_epoch,
+                       stopped_early=first.stopped_early)
+
+
+def _train_single(x_train, y_train, x_val, y_val, config: TrainConfig, on_epoch=None,
+                  aux_train=None, aux_val=None) -> TrainResult:
+    """
+    Обучает одну сеть MonitoringMLP.
 
     aux_train, aux_val — вспомогательные цели (выполнение каждого показателя
     в следующем году). Если они переданы и config.aux_weight > 0, сеть
@@ -133,7 +160,7 @@ def train_classifier(x_train, y_train, x_val, y_val, config: TrainConfig, on_epo
     multitask = aux_train is not None and aux_val is not None and config.aux_weight > 0
     n_aux = int(np.asarray(aux_train).shape[1]) if multitask else 0
     model = MonitoringMLP(x_train.shape[1], n_classes, config.hidden, config.dropout, config.batch_norm,
-                          config.activation, n_aux)
+                          config.activation, n_aux, config.structure_weight)
 
     # Веса классов обратно пропорциональны их частоте в обучающей выборке
     weight = None

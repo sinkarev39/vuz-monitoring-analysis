@@ -18,10 +18,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from vuzmon import __author__
-from vuzmon.ml.networks import MonitoringAutoencoder, MonitoringMLP
+from vuzmon.ml.networks import MonitoringAutoencoder, build_classifier
 from vuzmon.ml.preprocessing import TabularPreprocessor
 
 TOPIC = "Разработка системы интеллектуального анализа данных мониторинга вузов"
@@ -42,22 +43,46 @@ class LoadedModel:
         return "mlp" if self.meta.get("format") == FORMAT_CLASSIFIER else "autoencoder"
 
 
+def _plain(value):
+    """
+    Приводит значение к простым типам Python (словари, списки, числа, строки).
+    Безопасный режим загрузки torch.load(weights_only=True) допускает только
+    тензоры и простые типы, поэтому числа NumPy и кортежи преобразуются.
+    """
+    if isinstance(value, torch.Tensor):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return float(value)
+    return None if value is None else str(value)
+
+
 def _base_payload(model, preprocessor: TabularPreprocessor, file_format: str, extra: dict) -> dict:
     payload = {
         "format": file_format,
         "author": __author__,
         "topic": TOPIC,
         "created_at": datetime.now().isoformat(timespec="seconds"),
-        "torch_version": torch.__version__,
+        "torch_version": str(torch.__version__),
         "model_config": dict(model.config),
-        "state_dict": model.state_dict(),
         "preprocessor": preprocessor.state_dict(),
     }
     payload.update(extra or {})
+    payload = _plain(payload)
+    payload["state_dict"] = model.state_dict()   # веса сети — словарь тензоров
     return payload
 
 
-def save_classifier(path, model: MonitoringMLP, preprocessor: TabularPreprocessor, train_config: dict,
+def save_classifier(path, model, preprocessor: TabularPreprocessor, train_config: dict,
                     metrics: dict, class_names, history: list = None, extra: dict = None) -> Path:
     """Сохраняет классификатор со всем, что нужно для его применения и проверки."""
     path = Path(path)
@@ -91,9 +116,7 @@ def load_model(path) -> LoadedModel:
         raise ValueError("Файл не является моделью системы анализа данных мониторинга")
     config = payload["model_config"]
     if payload["format"] == FORMAT_CLASSIFIER:
-        model = MonitoringMLP(config["n_features"], config["n_classes"], tuple(config["hidden"]),
-                              config["dropout"], config["batch_norm"], config["activation"],
-                              int(config.get("n_aux", 0)))
+        model = build_classifier(config)
     elif payload["format"] == FORMAT_AUTOENCODER:
         model = MonitoringAutoencoder(config["n_features"], tuple(config["hidden"]), config["latent_dim"],
                                       config["dropout"], config["activation"])
