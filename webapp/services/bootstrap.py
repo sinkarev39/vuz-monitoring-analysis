@@ -19,12 +19,44 @@ from sqlalchemy import func, select
 
 from vuzmon import config
 from vuzmon.db.loader import load_monitoring_frames
-from vuzmon.db.models import Dataset, Experiment, ExperimentEpoch, Prediction, Setting, University
+from vuzmon.db.models import AuditLog, Dataset, Experiment, ExperimentEpoch, Prediction, Setting, University
 from vuzmon.db.session import get_session
 from vuzmon.ml import registry
 from webapp.services import store
 
 logger = logging.getLogger(__name__)
+
+
+INTERRUPTED_MESSAGE = ("Обучение прервано: система была остановлена до его завершения. "
+                       "Запустите обучение заново.")
+
+
+def close_interrupted_experiments() -> int:
+    """
+    Закрывает эксперименты, обучение которых оборвалось при остановке системы.
+
+    Обучение идёт в фоновом потоке и не переживает перезапуск. Запись
+    об эксперименте при этом оставалась в состоянии «обучается» навсегда:
+    страница бесконечно ждала новых эпох, а удалить такой эксперимент было
+    нельзя. При запуске системы фоновых потоков ещё нет, поэтому все
+    незавершённые эксперименты заведомо прерваны — они отмечаются как
+    несостоявшиеся. Возвращает их число.
+    """
+    db = get_session()
+    try:
+        interrupted = db.scalars(select(Experiment).where(Experiment.status.in_(("new", "running")))).all()
+        for experiment in interrupted:
+            experiment.status, experiment.message = "failed", INTERRUPTED_MESSAGE
+            experiment.finished_at = datetime.now()
+            db.add(AuditLog(user_id=experiment.created_by, action="train_interrupted",
+                            details=f"Эксперимент №{experiment.id} «{experiment.name}»: обучение прервано "
+                                    f"остановкой системы"))
+        db.commit()
+        if interrupted:
+            logger.warning("Прерванных обучений закрыто: %s", len(interrupted))
+        return len(interrupted)
+    finally:
+        db.close()
 
 
 def register_model_file(db, path, name: str = None, user_id: int = None, activate: bool = False):

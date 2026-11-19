@@ -25,7 +25,7 @@ from vuzmon.db.models import (AuditLog, Dataset, Experiment, FeedbackMessage, Pr
 from vuzmon.db.session import get_number_setting, get_session, init_db
 from vuzmon.ml import pipeline
 from webapp.forms import to_int
-from webapp.services import jobs, store
+from webapp.services import bootstrap, jobs, store
 from webapp.views_auth import LOCK_MINUTES, MAX_FAILED_LOGINS
 
 PUBLIC_PAGES = ["/", "/universities", "/compare", "/forecast", "/profiles", "/reports/", "/profile", "/help",
@@ -378,6 +378,31 @@ def test_unreadable_files_and_failed_training_are_reported_in_russian(client, mo
     page = client.get(f"/models/{experiment.id}").get_data(as_text=True)
     assert "Обучение завершилось ошибкой" in page and "Traceback" not in page
     assert client.post(f"/models/{experiment.id}/delete").status_code == 302
+
+
+def test_training_interrupted_by_restart_is_closed(client):
+    # Ошибка: после остановки системы во время обучения эксперимент навсегда оставался в состоянии
+    # «обучается» и не удалялся
+    login(client, "analyst", "Analyst#2026")
+    db = get_session()
+    experiment = Experiment(name="прерванное обучение", model_type="mlp", status="running",
+                            dataset_id=store.active_dataset(db).id)
+    db.add(experiment)
+    db.commit()
+    experiment_id = experiment.id
+    stuck = client.post(f"/models/{experiment_id}/delete", follow_redirects=True).get_data(as_text=True)
+    assert "Нельзя удалить эксперимент во время обучения" in stuck
+
+    assert bootstrap.close_interrupted_experiments() == 1            # выполняется при каждом запуске системы
+    db = get_session()
+    experiment = db.get(Experiment, experiment_id)
+    assert experiment.status == "failed" and experiment.finished_at is not None
+    assert "Обучение прервано" in client.get(f"/models/{experiment_id}").get_data(as_text=True)
+    assert client.get(f"/models/{experiment_id}/status.json").get_json()["status"] == "failed"
+    assert db.scalars(select(AuditLog).where(AuditLog.action == "train_interrupted")).first() is not None
+    assert bootstrap.close_interrupted_experiments() == 0            # готовые эксперименты не затрагиваются
+    assert client.post(f"/models/{experiment_id}/delete").status_code == 302
+    assert get_session().get(Experiment, experiment_id) is None
 
 
 def test_server_error_page_is_in_russian(app, client, monkeypatch):

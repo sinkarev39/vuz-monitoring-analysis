@@ -174,7 +174,9 @@ def create_app(database_url: str = None, testing: bool = False, bootstrap_data: 
     for blueprint in (auth_bp, main_bp, data_bp, models_bp, forecast_bp, reports_bp, feedback_bp, admin_bp):
         app.register_blueprint(blueprint)
 
+    from webapp.services import bootstrap
+    # Обучения, оборванные прошлой остановкой системы, отмечаются как несостоявшиеся
+    bootstrap.close_interrupted_experiments()
     if bootstrap_data:
-        from webapp.services import bootstrap
         bootstrap.ensure_default_dataset()
     return app
