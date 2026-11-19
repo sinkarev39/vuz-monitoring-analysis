@@ -489,6 +489,31 @@ def test_admin_manages_users_and_settings(client):
     assert "settings_update" in client.get("/admin/audit").get_data(as_text=True)
 
 
+def test_account_fields_are_validated(client):
+    # Недочёт: логин кириллицей принимался вопреки правилу формы, адрес электронной почты не проверялся
+    login(client)
+    db = get_session()
+    form = {"password": "Checker#2026", "role_id": "3", "is_active": "1"}
+    for wrong in ("админ", "ab", "имя.фамилия", "with space"):
+        page = client.post("/admin/users/new", data={**form, "login": wrong}).get_data(as_text=True)
+        assert "латинских букв, цифр, точек или подчёркиваний" in page, wrong
+    page = client.post("/admin/users/new", data={**form, "login": "checker", "email": "не адрес"})
+    assert "Адрес электронной почты указан неверно" in page.get_data(as_text=True)
+    assert db.scalars(select(User).where(User.login.in_(["админ", "checker"]))).first() is None
+    accepted = client.post("/admin/users/new", data={**form, "login": "checker.2", "email": "checker@example.ru"})
+    assert accepted.status_code == 302
+    assert db.scalars(select(User).where(User.login == "checker.2")).one().email == "checker@example.ru"
+
+    # Та же проверка адреса — в личном кабинете; при ошибке прежние сведения не изменяются
+    client.post("/profile", data={"action": "details", "full_name": "Администратор", "email": "admin@example.ru"})
+    wrong = client.post("/profile", data={"action": "details", "full_name": "Другое имя", "email": "admin@example"},
+                        follow_redirects=True)
+    assert "Адрес электронной почты указан неверно" in wrong.get_data(as_text=True)
+    db.expire_all()
+    me = db.scalars(select(User).where(User.login == "admin")).one()
+    assert me.email == "admin@example.ru" and me.full_name == "Администратор"
+
+
 def test_settings_are_validated(client):
     # Ошибка: нечисловое число строк на странице сохранялось, после чего раздел «Прогноз» возвращал ошибку 500
     login(client)

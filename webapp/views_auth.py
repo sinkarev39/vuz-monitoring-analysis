@@ -7,6 +7,7 @@
 """
 
 import math
+import re
 from datetime import datetime, timedelta
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
@@ -26,6 +27,27 @@ MIN_PASSWORD_LENGTH = 8
 # с того же адреса приостанавливается, пока самая ранняя из них не станет старше LOCK_MINUTES минут
 MAX_FAILED_LOGINS = 5
 LOCK_MINUTES = 10
+
+
+# Логин: латинские буквы, цифры, точка и подчёркивание. Проверяется именно состав символов:
+# метод str.isalnum считает буквами и кириллицу, и такой логин проходил вопреки правилу
+LOGIN_PATTERN = re.compile(r"[A-Za-z0-9_.]{3,64}")
+# Адрес электронной почты: имя, знак @ и домен с точкой, без пробелов
+EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s.]+")
+
+
+def login_problem(login: str) -> str:
+    """Проверка логина новой учётной записи. Возвращает текст замечания или пустую строку."""
+    if LOGIN_PATTERN.fullmatch(login) is None:
+        return "Логин: от 3 до 64 латинских букв, цифр, точек или подчёркиваний."
+    return ""
+
+
+def email_problem(email: str) -> str:
+    """Проверка адреса электронной почты (пустой адрес допустим). Возвращает замечание или пустую строку."""
+    if email and (len(email) > 128 or EMAIL_PATTERN.fullmatch(email) is None):
+        return "Адрес электронной почты указан неверно (пример: name@example.ru)."
+    return ""
 
 
 def password_problem(password: str) -> str:
@@ -115,12 +137,16 @@ def profile():
     if request.method == "POST":
         action = request.form.get("action")
         if action == "details":
-            user.full_name = request.form.get("full_name", "").strip()[:128]
-            user.email = request.form.get("email", "").strip()[:128]
-            user.position = request.form.get("position", "").strip()[:128]
-            db.commit()
-            security.audit("profile_update", "Изменены сведения в личном кабинете")
-            flash("Сведения сохранены.", "success")
+            email = request.form.get("email", "").strip()
+            if email_problem(email):
+                flash(email_problem(email), "error")
+            else:
+                user.full_name = request.form.get("full_name", "").strip()[:128]
+                user.email = email
+                user.position = request.form.get("position", "").strip()[:128]
+                db.commit()
+                security.audit("profile_update", "Изменены сведения в личном кабинете")
+                flash("Сведения сохранены.", "success")
         elif action == "password":
             new_password = request.form.get("new_password", "")
             problem = password_problem(new_password)

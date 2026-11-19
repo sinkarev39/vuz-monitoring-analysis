@@ -20,7 +20,7 @@ from vuzmon.db.models import AuditLog, Base, FeedbackMessage, Role, Setting, Uni
 from vuzmon.db.session import get_engine, get_session, hash_password
 from webapp import security
 from webapp.forms import to_int
-from webapp.views_auth import password_problem
+from webapp.views_auth import email_problem, login_problem, password_problem
 from webapp.views_feedback import CATEGORIES, STATUSES, TEXT_MAX
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -133,8 +133,8 @@ def user_form(user_id: int = None):
         role = db.get(Role, to_int(form.get("role_id")))      # нечисловой код роли — то же, что роль не выбрана
         errors = []
         if item is None:
-            if not (3 <= len(login) <= 64) or not login.replace("_", "").replace(".", "").isalnum():
-                errors.append("Логин: от 3 до 64 латинских букв, цифр, точек или подчёркиваний.")
+            if login_problem(login):
+                errors.append(login_problem(login))
             elif db.scalars(select(User).where(User.login == login)).first() is not None:
                 errors.append("Пользователь с таким логином уже существует.")
             if not password:
@@ -143,6 +143,9 @@ def user_form(user_id: int = None):
             errors.append(password_problem(password))
         if role is None:
             errors.append("Выберите роль.")
+        email = form.get("email", "").strip()
+        if email_problem(email):
+            errors.append(email_problem(email))
         is_active = bool(form.get("is_active"))
         me = security.current_user()
         if item is not None and item.id == me.id and (not is_active or (role and role.code != "admin")):
@@ -160,7 +163,7 @@ def user_form(user_id: int = None):
                 if password:
                     item.password_hash = hash_password(password)
             item.full_name = form.get("full_name", "").strip()[:128]
-            item.email = form.get("email", "").strip()[:128]
+            item.email = email
             item.position = form.get("position", "").strip()[:128]
             item.role_id, item.is_active = role.id, is_active
             db.commit()
