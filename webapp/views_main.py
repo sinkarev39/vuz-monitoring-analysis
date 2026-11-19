@@ -274,7 +274,8 @@ def university(university_id: int):
 def compare():
     """Сравнение до четырёх организаций по основным показателям последнего года."""
     db = get_session()
-    ids = [int(value) for value in request.args.getlist("id") if value.isdigit()][:4]
+    # Каждая организация участвует в сравнении один раз: повторный код из адресной строки отбрасывается
+    ids = list(dict.fromkeys(int(value) for value in request.args.getlist("id") if value.isdigit()))[:4]
     search = request.args.get("q", "").strip()
     found = []
     if search:
@@ -292,7 +293,11 @@ def compare():
                                                                item.is_branch)
         codes = [code for code in target_indicators(False)
                  if any(code in [row["code"] for row in t["rows"]] for t in tables.values())]
-        ratios = {item.short_name: [] for item in selected if item.id in tables}
+        # Подписи рядов на графике должны различаться: у разных организаций бывают одинаковые названия
+        names = [item.short_name for item in selected]
+        labels = {item.id: item.short_name if names.count(item.short_name) == 1
+                  else f"{item.short_name} (код {item.id})" for item in selected}
+        ratios = {labels[item.id]: [] for item in selected if item.id in tables}
         for code in codes:
             line = {"code": code, "title": MAIN_INDICATOR_TITLES[code], "cells": []}
             for item in selected:
@@ -305,7 +310,7 @@ def compare():
                 if item.id in tables:
                     ratio = cell["value"] / cell["median"] if cell and cell["value"] is not None \
                         and cell["median"] else 0.0
-                    ratios[item.short_name].append(min(ratio, 4.0))
+                    ratios[labels[item.id]].append(min(ratio, 4.0))
             rows.append(line)
         if codes and ratios:
             chart = plots.to_svg(plots.grouped_bars(

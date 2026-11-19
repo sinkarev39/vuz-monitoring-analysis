@@ -227,6 +227,24 @@ def test_notes_and_search(client):
     assert "ничего не найдено" in client.get("/universities?q=несуществующийвуз").get_data(as_text=True)
 
 
+def test_compare_with_repeated_and_same_named_organizations(client):
+    # Ошибка: повторный выбор организации и две организации с одинаковым названием давали ошибку 500
+    login(client, "viewer", "Viewer#2026")
+    db = get_session()
+    first, second = db.scalars(select(University).where(University.is_branch.is_(False)).limit(2)).all()
+    page = client.get(f"/compare?id={first.id}&id={first.id}")
+    assert page.status_code == 200 and page.get_data(as_text=True).count(">убрать<") == 1
+    original = second.short_name
+    second.short_name = first.short_name
+    db.commit()
+    try:
+        page = client.get(f"/compare?id={first.id}&id={second.id}")
+        assert page.status_code == 200 and page.get_data(as_text=True).count(">убрать<") == 2
+    finally:
+        second.short_name = original
+        db.commit()
+
+
 def test_admin_manages_users_and_settings(client):
     login(client)
     form = {"login": "expert", "password": "Expert#2026", "full_name": "Эксперт", "role_id": "3", "is_active": "1"}
