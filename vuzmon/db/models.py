@@ -10,7 +10,8 @@
     показатели, значения показателей, медианы);
   * результаты интеллектуального анализа (наборы данных, эксперименты,
     метрики по эпохам, прогнозы, заметки аналитиков);
-  * служебные таблицы (роли, пользователи, журнал действий, настройки).
+  * служебные таблицы (роли, пользователи, журнал действий, настройки,
+    обращения пользователей).
 ORM позволяет без изменения кода перейти с SQLite на PostgreSQL:
 достаточно указать другой адрес подключения в настройках.
 """
@@ -80,6 +81,26 @@ class Setting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(String(255), default="")
     title: Mapped[str] = mapped_column(String(255), default="")      # пояснение для панели настроек
+
+
+class FeedbackMessage(Base):
+    """Обращение пользователя к администратору (форма обратной связи) и ответ на него."""
+    __tablename__ = "feedback_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    category: Mapped[str] = mapped_column(String(16))                # question / error / data / proposal
+    subject: Mapped[str] = mapped_column(String(160))
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="new", index=True)   # new / in_work / closed
+    reply: Mapped[str] = mapped_column(Text, default="")             # ответ администратора
+    replied_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    replied_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    # Две связи с одной таблицей users: автор обращения и ответивший администратор
+    author: Mapped[User] = relationship(foreign_keys=[user_id])
+    responder: Mapped[User] = relationship(foreign_keys=[replied_by])
 
 
 # ==========================================================================
