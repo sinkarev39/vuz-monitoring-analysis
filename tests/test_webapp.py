@@ -47,9 +47,19 @@ def test_login_rejects_wrong_password_and_logs_attempt(client):
     assert last.action == "login_failed"
 
 
-def test_login_does_not_follow_external_redirect(client):
-    response = client.post("/login?next=//evil.example/", data={"login": "admin", "password": "Admin#2026"})
-    assert response.status_code == 302 and response.headers["Location"] == "/"
+@pytest.mark.parametrize("target, location", [
+    ("//evil.example/", "/"),
+    ("https://evil.example/", "/"),
+    ("/\t/evil.example", "/"),          # ошибка: браузер отбрасывает табуляцию и переходит на //evil.example
+    ("/\n/evil.example", "/"),
+    ("/\\evil.example", "/"),          # обратную косую черту браузеры читают как обычную
+    ("forecast", "/"),
+    ("/forecast?predicted=0", "/forecast?predicted=0"),      # внутренний адрес сохраняется
+])
+def test_login_does_not_follow_external_redirect(client, target, location):
+    response = client.post("/login", query_string={"next": target}, data={"login": "admin", "password": "Admin#2026"})
+    assert response.status_code == 302 and response.headers["Location"] == location
+    client.post("/logout")
 
 
 @pytest.mark.parametrize("username, password, allowed, forbidden", [

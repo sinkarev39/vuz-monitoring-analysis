@@ -15,6 +15,7 @@
 
 import secrets
 from functools import wraps
+from urllib.parse import urlsplit
 
 from flask import abort, flash, g, redirect, request, session, url_for
 from werkzeug.security import check_password_hash
@@ -68,6 +69,25 @@ def roles_required(*codes):
             return view(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def safe_next_url(target: str) -> str:
+    """
+    Адрес страницы, на которую можно перейти после входа, или пустая строка.
+
+    Параметр next приходит из адресной строки, и ссылку вида /login?next=…
+    может прислать посторонний. Допускается только адрес внутри системы: путь,
+    начинающийся с одной косой черты. Отклоняются адреса с именем сайта
+    (//site, https://site), с обратной косой чертой и со служебными символами:
+    браузеры отбрасывают табуляцию и перевод строки и читают «/\t/site» как
+    «//site», то есть как адрес другого сайта.
+    """
+    if not target or not target.startswith("/") or target.startswith("//"):
+        return ""
+    if "\\" in target or any(ord(char) < 32 or ord(char) == 127 for char in target):
+        return ""
+    parts = urlsplit(target)
+    return "" if parts.scheme or parts.netloc else target
 
 
 def verify_password(user: User, password: str) -> bool:
