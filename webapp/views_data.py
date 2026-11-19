@@ -17,6 +17,7 @@ from flask import Blueprint, abort, flash, jsonify, redirect, render_template, r
 from sqlalchemy import select
 
 from vuzmon import config
+from vuzmon.collect import validation
 from vuzmon.collect.crawler import DATASET_FILES
 from vuzmon.db.loader import load_monitoring_frames
 from vuzmon.db.models import Dataset, Experiment
@@ -26,15 +27,6 @@ from webapp.services import jobs, store
 
 bp = Blueprint("data", __name__, url_prefix="/data")
 
-# Обязательные столбцы таблиц набора данных (проверяются при загрузке файлов)
-REQUIRED_COLUMNS = {
-    "institutions": {"year", "inst_id", "name", "is_branch", "region_id", "region", "federal_district",
-                     "founder_group"},
-    "main": {"inst_id", "page_year", "value_year", "e1", "e2", "e4", "e8"},
-    "medians": {"year", "inst_id", "code", "median_rf"},
-    "extra": {"year", "inst_id", "p1", "p22", "p48"},
-    "dictionary": {"column", "code", "section", "name"},
-}
 TABLE_TITLES = {"institutions": "Паспорта организаций", "main": "Основные показатели",
                 "medians": "Медианные значения", "extra": "Дополнительные характеристики",
                 "dictionary": "Справочник показателей"}
@@ -109,11 +101,7 @@ def _read_uploaded_tables(files) -> dict:
     for table, filename in DATASET_FILES.items():
         if filename not in contents:
             raise ValueError(f"Не найден файл {filename}")
-        frame = pd.read_csv(io.BytesIO(contents[filename]), encoding="utf-8")
-        missing = REQUIRED_COLUMNS[table] - set(frame.columns)
-        if missing:
-            raise ValueError(f"В файле {filename} нет столбцов: {', '.join(sorted(missing))}")
-        tables[table] = frame
+        tables[table] = pd.read_csv(io.BytesIO(contents[filename]), encoding="utf-8")
     return tables
 
 
@@ -131,9 +119,15 @@ def upload():
     except (ValueError, zipfile.BadZipFile, pd.errors.ParserError, UnicodeDecodeError) as error:
         flash(f"Набор данных не загружен: {error}", "error")
         return redirect(url_for("data.index"))
+    # Содержимое проверяется до сохранения: набор с ошибками на диск и в перечень не попадает
+    problems = validation.check_frames(tables)
+    if problems:
+        flash("Набор данных не загружен: в файлах найдены ошибки.", "error")
+        for problem in problems:
+            flash(f"{problem}.", "error")
+        return redirect(url_for("data.index"))
 
-    directory = config.DATA_DIR / "datasets" / datetime.now().strftime("upload_%Y%m%d_%H%M%S")
-    directory.mkdir(parents=True, exist_ok=True)
+    directory = store.new_dataset_directory("upload")
     for table, filename in DATASET_FILES.items():
         tables[table].to_csv(directory / filename, index=False, encoding="utf-8")
     years = sorted(int(year) for year in tables["institutions"]["year"].unique())

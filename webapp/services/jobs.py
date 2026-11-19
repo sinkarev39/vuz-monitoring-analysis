@@ -256,7 +256,7 @@ def _collect_job(report, years: list, user_id: int, load_to_db: bool, limit: int
 
     report("Сохранение набора данных", 0.92)
     frames = records_to_frames(records)
-    directory = config.DATA_DIR / "datasets" / datetime.now().strftime("site_%Y%m%d_%H%M%S")
+    directory = store.new_dataset_directory("site")
     save_frames(frames, directory)
     dataset = Dataset(name=f"Сбор с сайта мониторинга от {datetime.now():%d.%m.%Y %H:%M}", source="site",
                       location=store.relative(directory), years=", ".join(map(str, sorted(years))),

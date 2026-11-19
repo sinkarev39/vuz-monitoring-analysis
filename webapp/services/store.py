@@ -11,7 +11,9 @@
 автоматически.
 """
 
+import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -20,6 +22,8 @@ from vuzmon import config
 from vuzmon.collect.crawler import DATASET_FILES, load_frames
 from vuzmon.db.models import Dataset, Experiment, Setting
 from vuzmon.ml import pipeline, registry
+
+logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _cache = {}
@@ -38,6 +42,28 @@ def relative(path) -> str:
         return path.relative_to(config.BASE_DIR.resolve()).as_posix()
     except ValueError:
         return str(path)
+
+
+def new_dataset_directory(prefix: str) -> Path:
+    """
+    Создаёт каталог для нового набора данных внутри data/datasets и возвращает его.
+
+    Имя состоит из вида набора (upload — из файлов, site — с сайта) и времени
+    создания. Каталог создаётся в исключительном режиме: если два набора
+    добавляются в одну и ту же секунду, второй получает имя с номером, а не
+    записывается поверх первого.
+    """
+    base = config.DATA_DIR / "datasets"
+    base.mkdir(parents=True, exist_ok=True)
+    name = f"{prefix}_{datetime.now():%Y%m%d_%H%M%S}"
+    number = 1
+    while True:
+        directory = base / (name if number == 1 else f"{name}_{number}")
+        try:
+            directory.mkdir()
+            return directory
+        except FileExistsError:
+            number += 1
 
 
 def _signature(directory: Path) -> tuple:
@@ -118,6 +144,9 @@ def activation_problem(location: str) -> str:
         prepared(location)
     except ValueError as error:
         return f"{error}."
+    except Exception:       # любой иной сбой подготовки: с таким набором страницы системы не откроются
+        logger.exception("Набор данных %s не удалось подготовить", location)
+        return "Набор данных не удалось обработать: проверьте содержимое файлов."
     return ""
 
 

@@ -17,8 +17,10 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from tests.conftest import login
+from vuzmon import config
 from vuzmon.collect.crawler import DATASET_FILES
-from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, Setting, University, User
+from vuzmon.db.models import (AuditLog, Dataset, Experiment, FeedbackMessage, Prediction, Setting, University,
+                              User)
 from vuzmon.db.session import get_number_setting, get_session, init_db
 from webapp.forms import to_int
 from webapp.services import jobs, store
@@ -155,14 +157,19 @@ def test_dataset_download_and_upload_roundtrip(client):
     assert client.post("/data/2/delete").status_code == 302 and client.get("/data/2").status_code == 404
 
 
-def _upload_dataset(client, frames: dict, name: str) -> int:
-    """Загружает набор данных ZIP-архивом и возвращает его номер."""
+def _archive(frames: dict) -> io.BytesIO:
+    """ZIP-архив с пятью CSV-файлами набора данных."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for table, filename in DATASET_FILES.items():
             archive.writestr(filename, frames[table].to_csv(index=False))
     buffer.seek(0)
-    response = client.post("/data/upload", data={"files": (buffer, "dataset.zip"), "name": name},
+    return buffer
+
+
+def _upload_dataset(client, frames: dict, name: str) -> int:
+    """Загружает набор данных ZIP-архивом и возвращает его номер."""
+    response = client.post("/data/upload", data={"files": (_archive(frames), "dataset.zip"), "name": name},
                            content_type="multipart/form-data")
     assert response.status_code == 302
     return int(response.headers["Location"].rsplit("/", 1)[1])
@@ -204,6 +211,57 @@ def test_short_dataset_cannot_become_working(client, small_frames):
     assert store.active_dataset(db).id == working_id                        # рабочий набор прежний
     assert len(db.scalars(select(University)).all()) == universities        # данные в базе не заменены
     assert client.get("/").status_code == 200 and client.get("/forecast").status_code == 200
+    assert client.post(f"/data/{new_id}/delete").status_code == 302
+
+
+def test_upload_rejects_dataset_with_wrong_values(client, small_frames, monkeypatch):
+    # Ошибка: текст вместо года давал ошибку 500 при загрузке, текст вместо показателя — при выборе набора рабочим
+    login(client, "analyst", "Analyst#2026")
+    datasets_dir = config.DATA_DIR / "datasets"
+    folders = set(datasets_dir.iterdir()) if datasets_dir.exists() else set()
+    count = len(get_session().scalars(select(Dataset)).all())
+
+    def upload(frames: dict) -> str:
+        page = client.post("/data/upload", data={"files": (_archive(frames), "dataset.zip"), "name": "с ошибкой"},
+                           content_type="multipart/form-data", follow_redirects=True)
+        assert page.status_code == 200
+        return page.get_data(as_text=True)
+
+    wrong_year = dict(small_frames, institutions=small_frames["institutions"].astype({"year": object}))
+    wrong_year["institutions"].iloc[0, wrong_year["institutions"].columns.get_loc("year")] = "две тысячи"
+    text = upload(wrong_year)
+    assert "Набор данных не загружен" in text and "institutions.csv" in text
+    assert "ожидается целое число" in text and "в строке 2 указано «две тысячи»" in text
+
+    wrong_value = dict(small_frames, main=small_frames["main"].astype({"e1": object}))
+    wrong_value["main"].iloc[3, wrong_value["main"].columns.get_loc("e1")] = "много"
+    text = upload(wrong_value)
+    assert "main_indicators.csv" in text and "ожидается число" in text and "в строке 5 указано «много»" in text
+
+    text = upload({name: frame.iloc[0:0] for name, frame in small_frames.items()})
+    assert "нет ни одной записи" in text
+
+    # Наборы с ошибками не попадают ни в перечень, ни на диск
+    assert len(get_session().scalars(select(Dataset)).all()) == count
+    assert (set(datasets_dir.iterdir()) if datasets_dir.exists() else set()) == folders
+
+    # Два набора, добавленные в одну секунду, получают разные каталоги
+    first, second = store.new_dataset_directory("check"), store.new_dataset_directory("check")
+    assert first != second and first.is_dir() and second.is_dir()
+    first.rmdir()
+    second.rmdir()
+
+    # Набор, подготовка которого завершается любым сбоем, рабочим не становится — страницы продолжают открываться
+    new_id = _upload_dataset(client, small_frames, "исправный набор")
+    working_id = store.active_dataset(get_session()).id
+
+    def broken(location):
+        raise TypeError("unsupported operand type(s) for /: 'str' and 'float'")
+    monkeypatch.setattr(store, "prepared", broken)
+    page = client.post(f"/data/{new_id}/activate", follow_redirects=True).get_data(as_text=True)
+    assert "нельзя сделать рабочим" in page and "не удалось обработать" in page
+    monkeypatch.undo()
+    assert store.active_dataset(get_session()).id == working_id and client.get("/").status_code == 200
     assert client.post(f"/data/{new_id}/delete").status_code == 302
 
 
