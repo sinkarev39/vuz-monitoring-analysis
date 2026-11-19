@@ -16,10 +16,13 @@
 
 Проверяются: вход под тремя ролями и состав меню, запрет чужих разделов,
 построение прогноза, выгрузка документов Word и Excel (каждый документ
-открывается библиотекой и проверяется его содержимое). Сбор данных с сайта
-мониторинга требует доступа к Интернету, поэтому включается отдельным ключом:
-запрашиваются сведения о трёх организациях за один год; такой пробный набор
-сохраняется в перечне наборов, а рабочий набор данных остаётся прежним.
+открывается библиотекой и проверяется его содержимое), сравнение организаций,
+проверка настроек, защитные заголовки ответов и приостановка входа после
+нескольких неверных паролей. Получение данных из внешних источников требует
+доступа к Интернету, поэтому включается отдельным ключом: с сайта мониторинга
+запрашиваются сведения о трёх организациях за один год, а опубликованный набор
+данных загружается по ссылке из репозитория проекта. Оба набора сохраняются
+в перечне наборов, а рабочий набор данных остаётся прежним.
 
 Код возврата: 0 — все сценарии выполнены, 1 — есть расхождения.
 """
@@ -48,6 +51,8 @@ RESTRICTED = {"/data/": ("admin", "analyst"), "/models/": ("admin", "analyst"), 
 
 COLLECT_LIMIT = 3          # сколько организаций запрашивать при проверке сбора данных
 COLLECT_TIMEOUT = 300      # предельное время ожидания сбора, с
+LINK_TIMEOUT = 600         # предельное время ожидания загрузки набора по ссылке, с
+LOGIN_ATTEMPTS = 5         # после стольких неверных паролей подряд вход приостанавливается
 
 
 class Visitor:
@@ -244,6 +249,57 @@ def check_documents(protocol: Protocol, viewer: Visitor, admin: Visitor) -> None
     protocol.run("Журнал действий недоступен руководителю", "код 403", audit_closed)
 
 
+def check_protection(protocol: Protocol, url: str, viewer: Visitor, admin: Visitor) -> None:
+    """Сравнение с повторным выбором, проверка настроек, защитные заголовки, приостановка входа."""
+    def compare_twice():
+        university_id = re.search(r'href="/universities/(\d+)"', viewer.get("/forecast").text).group(1)
+        response = viewer.get(f"/compare?id={university_id}&id={university_id}")
+        shown = response.text.count(">убрать<")
+        return f"код {response.status_code}, организаций в сравнении: {shown}", \
+            response.status_code == 200 and shown == 1
+    protocol.run("Сравнение: одна и та же организация выбрана дважды",
+                 "код 200, организаций в сравнении: 1", compare_twice)
+
+    def wrong_setting():
+        admin.get("/admin/settings")
+        message = flashes(admin.post("/admin/settings", {"records_per_page": "много"}).text)
+        code = viewer.get("/forecast").status_code
+        return f"сообщение «{message}», страница «Прогноз» — код {code}", \
+            "Настройки не сохранены" in message and "целое число от 5 до 200" in message and code == 200
+    protocol.run("Настройки: текст вместо числа строк на странице (администратор)",
+                 "сообщение о допустимых значениях («целое число от 5 до 200»), настройки не сохранены, "
+                 "страница «Прогноз» — код 200", wrong_setting)
+
+    def headers():
+        got = Visitor(url).get("/login").headers
+        found = {"X-Frame-Options": got.get("X-Frame-Options", "нет"),
+                 "X-Content-Type-Options": got.get("X-Content-Type-Options", "нет"),
+                 "Cache-Control": got.get("Cache-Control", "нет"),
+                 "Content-Security-Policy": "есть" if "default-src 'self'" in got.get("Content-Security-Policy", "")
+                 else "нет"}
+        wanted = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+                  "Content-Security-Policy": "есть"}
+        return ", ".join(f"{name}: {value}" for name, value in found.items()), found == wanted
+    protocol.run("Защитные заголовки ответа сервера",
+                 "X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Cache-Control: no-store, "
+                 "Content-Security-Policy: есть", headers)
+
+    def lockout():
+        # Логин заведомо несуществующий и новый при каждой проверке: учётные записи системы не затрагиваются
+        guest, name = Visitor(url), f"check{int(time.time())}"
+        guest.get("/login")
+        codes = [guest.post("/login", {"login": name, "password": "wrong-password"}).status_code
+                 for _ in range(LOGIN_ATTEMPTS)]
+        response = guest.post("/login", {"login": name, "password": "wrong-password"})
+        message = flashes(response.text)
+        return f"{LOGIN_ATTEMPTS} попыток — коды {sorted(set(codes))}, следующая — код {response.status_code}, " \
+               f"сообщение «{message}»", set(codes) == {200} and response.status_code == 429 \
+            and "Слишком много неудачных попыток входа" in message
+    protocol.run(f"Приостановка входа после {LOGIN_ATTEMPTS} неверных паролей подряд",
+                 f"{LOGIN_ATTEMPTS} попыток — коды [200], следующая — код 429, сообщение «Слишком много неудачных "
+                 f"попыток входа. Повторите через N мин.»", lockout)
+
+
 def working_dataset(visitor: Visitor) -> str:
     """Номер и название рабочего набора данных со страницы «Данные»."""
     found = re.search(r'<a href="/data/(\d+)">([^<]+)</a>\s*<span class="badge ok">рабочий</span>',
@@ -279,11 +335,29 @@ def check_collect(protocol: Protocol, analyst: Visitor) -> None:
     protocol.run("Собранный набор данных появился в разделе «Данные»",
                  "набор «Сбор с сайта мониторинга» есть в перечне", dataset_listed)
 
+    def by_link():
+        analyst.get("/data/")
+        analyst.post("/data/link", {"url": config.DATASET_URL, "name": "Проверка загрузки по ссылке"})
+        started = time.time()
+        while time.time() - started < LINK_TIMEOUT:
+            state = analyst.get("/data/job.json").json()
+            if state["status"] != "running":
+                break
+            time.sleep(2)
+        seconds = round(time.time() - started)
+        listed = "<td>ссылка</td>" in analyst.get("/data/").text
+        passed = state["status"] == "done" and "загружен по ссылке" in state["message"] and listed
+        return f"состояние «{state['status']}» за {seconds} с, сообщение «{state['message']}», набор с источником " \
+               f"«ссылка» {'есть в перечне' if listed else 'не найден'}", passed
+    protocol.run(f"Загрузка набора данных по ссылке {config.DATASET_URL} (аналитик)",
+                 "состояние «done», сообщение «Готово: набор данных №N загружен по ссылке, записей об организациях — "
+                 "M», набор с источником «ссылка» есть в перечне", by_link)
+
     def still_working():
         after = working_dataset(analyst)
         code = analyst.get("/").status_code
         return f"рабочий набор {after}, страница «Обзор» — код {code}", after == before and code == 200
-    protocol.run("После пробного сбора рабочий набор данных прежний",
+    protocol.run("После пробного сбора и загрузки по ссылке рабочий набор данных прежний",
                  f"рабочий набор {before}, страница «Обзор» — код 200", still_working)
 
 
@@ -312,7 +386,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Проверка установки системы по основным сценариям работы")
     parser.add_argument("--url", default="http://127.0.0.1:5000", help="адрес запущенного приложения")
     parser.add_argument("--collect", action="store_true",
-                        help="проверить получение данных с сайта мониторинга (нужен доступ к Интернету)")
+                        help="проверить получение данных с сайта мониторинга и по ссылке из репозитория "
+                             "(нужен доступ к Интернету)")
     parser.add_argument("--report", default="", help="файл, в который сохранить протокол (Markdown)")
     parser.add_argument("--wait", type=int, default=0, metavar="СЕКУНД",
                         help="сколько секунд ждать запуска приложения (по умолчанию не ждать)")
@@ -331,6 +406,7 @@ def main() -> int:
     visitors = {role: check_role(protocol, args.url, role) for role in ACCOUNTS}
     check_forecast(protocol, visitors["analyst"], visitors["viewer"])
     check_documents(protocol, visitors["viewer"], visitors["admin"])
+    check_protection(protocol, args.url, visitors["viewer"], visitors["admin"])
     if args.collect:
         check_collect(protocol, visitors["analyst"])
 
