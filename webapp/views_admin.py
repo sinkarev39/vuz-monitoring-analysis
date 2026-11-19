@@ -19,10 +19,14 @@ from vuzmon import __version__, config
 from vuzmon.db.models import AuditLog, Base, FeedbackMessage, Role, Setting, University, User
 from vuzmon.db.session import get_engine, get_session, hash_password
 from webapp import security
+from webapp.forms import to_int
 from webapp.views_auth import password_problem
 from webapp.views_feedback import CATEGORIES, STATUSES, TEXT_MAX
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+# Журнал показывается не более чем за десять лет: большее число дней не имеет смысла
+MAX_AUDIT_DAYS = 3650
 
 # Вкладки панели администратора
 TABS = [("admin.users", "Пользователи"), ("admin.feedback", "Обращения"),
@@ -82,7 +86,7 @@ def user_form(user_id: int = None):
         form = request.form
         login = form.get("login", "").strip()
         password = form.get("password", "")
-        role = db.get(Role, int(form.get("role_id", "0") or 0))
+        role = db.get(Role, to_int(form.get("role_id")))      # нечисловой код роли — то же, что роль не выбрана
         errors = []
         if item is None:
             if not (3 <= len(login) <= 64) or not login.replace("_", "").replace(".", "").isalnum():
@@ -184,8 +188,9 @@ def audit():
         query = query.where(AuditLog.user_id == int(args["user"]))
     if args.get("action"):
         query = query.where(AuditLog.action == args["action"])
-    if args.get("days", "").isdigit():
-        query = query.where(AuditLog.created_at >= datetime.now() - timedelta(days=int(args["days"])))
+    days = to_int(args.get("days"), 0, low=0, high=MAX_AUDIT_DAYS)
+    if days:
+        query = query.where(AuditLog.created_at >= datetime.now() - timedelta(days=days))
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     size = 50
     pages = max(1, (total + size - 1) // size)

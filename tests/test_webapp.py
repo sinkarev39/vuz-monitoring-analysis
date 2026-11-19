@@ -18,6 +18,7 @@ from tests.conftest import login
 from vuzmon.collect.crawler import DATASET_FILES
 from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, Setting, University, User
 from vuzmon.db.session import get_session
+from webapp.forms import to_int
 from webapp.services import jobs, store
 
 PUBLIC_PAGES = ["/", "/universities", "/compare", "/forecast", "/profiles", "/reports/", "/profile", "/help",
@@ -243,6 +244,21 @@ def test_compare_with_repeated_and_same_named_organizations(client):
     finally:
         second.short_name = original
         db.commit()
+
+
+def test_malformed_numbers_in_forms_do_not_break_pages(client):
+    # Ошибка: нечисловое значение в числовом поле формы или адреса страницы давало ошибку 500
+    assert to_int("7") == 7 and to_int("семь", 3) == 3 and to_int(None, 1) == 1 and to_int("500", 0, 0, 100) == 100
+    login(client)
+    form = {"login": "tester1", "password": "Tester#2026", "role_id": "abc", "is_active": "1"}
+    page = client.post("/admin/users/new", data=form)
+    assert page.status_code == 200 and "Выберите роль" in page.get_data(as_text=True)
+    assert get_session().scalars(select(User).where(User.login == "tester1")).first() is None
+    assert client.get("/admin/audit?days=99999999999").status_code == 200
+    assert client.get("/admin/audit?days=abc").status_code == 200
+    university = get_session().scalars(select(University)).first()
+    removal = client.post(f"/universities/{university.id}", data={"action": "delete_note", "note_id": "abc"})
+    assert removal.status_code == 302
 
 
 def test_admin_manages_users_and_settings(client):

@@ -20,6 +20,7 @@ from vuzmon.db.session import get_session, get_setting
 from vuzmon.ml import explain, pipeline, plots, trainer
 from vuzmon.ml.dataset import CLASS_NAMES, target_indicators
 from webapp import security
+from webapp.forms import to_int
 from webapp.services import queries, store
 
 bp = Blueprint("main", __name__)
@@ -198,7 +199,7 @@ def university(university_id: int):
         if not security.has_role(*security.ROLE_ANALYST):
             abort(403)
         if request.form.get("action") == "delete_note":
-            note = db.get(AnalystNote, int(request.form.get("note_id", "0") or 0))
+            note = db.get(AnalystNote, to_int(request.form.get("note_id")))
             if note is not None and note.university_id == university_id:
                 db.delete(note)
                 db.commit()
