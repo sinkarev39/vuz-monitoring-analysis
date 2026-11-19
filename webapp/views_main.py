@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from vuzmon.config import MAIN_INDICATOR_TITLES
 from vuzmon.db.models import (AnalystNote, AuditLog, FederalDistrict, FounderGroup, Prediction, Region,
                               University)
-from vuzmon.db.session import get_session, get_setting
+from vuzmon.db.session import get_number_setting, get_session, get_setting
 from vuzmon.ml import explain, pipeline, plots, trainer
 from vuzmon.ml.dataset import CLASS_NAMES, target_indicators
 from webapp import security
@@ -35,8 +35,8 @@ def _prepared_or_none(db):
 
 
 def _page_size(db) -> int:
-    value = get_setting(db, "records_per_page", "25")
-    return max(5, min(200, int(value))) if value.isdigit() else 25
+    """Число строк на странице списка (настройка records_per_page)."""
+    return get_number_setting(db, "records_per_page", 25, 5, 200)
 
 
 # --------------------------------------------------------------------------

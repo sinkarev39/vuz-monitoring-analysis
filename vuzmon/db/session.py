@@ -112,3 +112,26 @@ def get_setting(session, key: str, default: str = "") -> str:
     """Значение настройки по ключу (или значение по умолчанию)."""
     setting = session.get(Setting, key)
     return setting.value if setting is not None and setting.value != "" else default
+
+
+def get_number_setting(session, key: str, default, low=None, high=None):
+    """
+    Числовая настройка того же типа, что и default (int или float).
+
+    Панель администратора проверяет значения при сохранении, но в базе может
+    оказаться и значение, внесённое в обход неё. Страницы не должны из-за этого
+    переставать открываться, поэтому нечисловое значение заменяется значением
+    по умолчанию, а выходящее за допустимые границы — ближайшей границей.
+    """
+    kind = type(default)
+    try:
+        value = kind(str(get_setting(session, key, str(default))).strip().replace(",", "."))
+    except ValueError:
+        return default
+    if value != value or value in (float("inf"), float("-inf")):      # NaN и бесконечность числами не считаем
+        return default
+    if low is not None:
+        value = max(kind(low), value)
+    if high is not None:
+        value = min(kind(high), value)
+    return value

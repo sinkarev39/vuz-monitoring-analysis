@@ -11,7 +11,7 @@
       {% for row in rows %}
       <tr><td><label for="{{ row.key }}">{{ row.title }}</label>
           {% if row.key == 'home_university_id' and home_university %}<div class="muted small">сейчас: {{ home_university.short_name }}</div>{% endif %}</td>
-        <td style="min-width:240px"><input type="text" id="{{ row.key }}" name="{{ row.key }}" value="{{ row.value }}" maxlength="255"></td>
+        <td style="min-width:240px"><input type="text" id="{{ row.key }}" name="{{ row.key }}" value="{{ entered.get(row.key, row.value) }}" maxlength="255"></td>
         <td class="muted small"><code>{{ row.key }}</code></td></tr>
       {% endfor %}
     </table></div>

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from tests.conftest import login
 from vuzmon.collect.crawler import DATASET_FILES
 from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, Setting, University, User
-from vuzmon.db.session import get_session
+from vuzmon.db.session import get_number_setting, get_session
 from webapp.forms import to_int
 from webapp.services import jobs, store
 
@@ -287,6 +287,43 @@ def test_admin_manages_users_and_settings(client):
     assert client.get("/universities").get_data(as_text=True).count("/universities/") <= 12
     assert client.get("/reports/audit.xlsx").data[:2] == b"PK"
     assert "settings_update" in client.get("/admin/audit").get_data(as_text=True)
+
+
+def test_settings_are_validated(client):
+    # Ошибка: нечисловое число строк на странице сохранялось, после чего раздел «Прогноз» возвращал ошибку 500
+    login(client)
+    db = get_session()
+    before = {row.key: row.value for row in db.scalars(select(Setting))}
+    page = client.post("/admin/settings", data={"records_per_page": "abc", "collector_interval": "быстро",
+                                                "risk_threshold": "5", "home_university_id": "999999999"})
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200 and "Настройки не сохранены" in text
+    assert "введите целое число от 5 до 200" in text and "значение должно быть от 0,05 до 0,95" in text
+    assert "организации с таким кодом нет" in text and 'value="abc"' in text       # введённое показано снова
+    db.expire_all()
+    assert {row.key: row.value for row in db.scalars(select(Setting))} == before   # не сохранено ничего
+
+    # Десятичная запятая допустима; значение хранится в единой записи
+    client.post("/admin/settings", data={"collector_interval": "0,5"})
+    db.expire_all()
+    assert db.get(Setting, "collector_interval").value == "0.5"
+    client.post("/admin/settings", data={"collector_interval": before["collector_interval"]})
+
+    # Код рабочего набора данных меняется только в разделе «Данные», в настройках его нет
+    assert "active_dataset_id" in before and "active_dataset_id" not in client.get("/admin/settings").get_data(as_text=True)
+    client.post("/admin/settings", data={"active_dataset_id": "999"})
+    db.expire_all()
+    assert db.get(Setting, "active_dataset_id").value == before["active_dataset_id"]
+
+    # Значение, попавшее в базу в обход панели, не мешает открывать страницы
+    db.get(Setting, "records_per_page").value = "abc"
+    db.commit()
+    try:
+        assert client.get("/forecast").status_code == 200 and client.get("/universities").status_code == 200
+        assert get_number_setting(db, "records_per_page", 25, 5, 200) == 25
+    finally:
+        db.get(Setting, "records_per_page").value = before["records_per_page"]
+        db.commit()
 
 
 def test_feedback_form_validates_input(client):

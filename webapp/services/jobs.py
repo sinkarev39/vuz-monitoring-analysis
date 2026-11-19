@@ -25,7 +25,7 @@ from vuzmon.collect.crawler import MonitoringCrawler, records_to_frames, save_fr
 from vuzmon.collect.http_client import CachedHttpClient
 from vuzmon.db.loader import load_monitoring_frames
 from vuzmon.db.models import AuditLog, Dataset, Experiment, ExperimentEpoch, Prediction
-from vuzmon.db.session import get_session_factory, get_setting
+from vuzmon.db.session import get_number_setting, get_session_factory
 from vuzmon.ml import explain, pipeline, registry, trainer
 from vuzmon.ml.dataset import CLASS_NAMES
 from vuzmon.ml.trainer import TrainConfig
@@ -235,7 +235,7 @@ def start_training(experiment_id: int) -> str:
 # --------------------------------------------------------------------------
 def _collect_job(report, years: list, user_id: int, load_to_db: bool, limit: int = None) -> None:
     db = get_session_factory()()
-    interval = float(get_setting(db, "collector_interval", "0.25"))
+    interval = get_number_setting(db, "collector_interval", 0.25, 0.1, 10.0)
     client = CachedHttpClient(config.CACHE_DIR, min_interval=interval)
     state = {"year_index": 0}
 

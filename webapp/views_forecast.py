@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from vuzmon.config import MAIN_INDICATOR_TITLES
 from vuzmon.db.models import FederalDistrict, Region, University
-from vuzmon.db.session import get_session, get_setting
+from vuzmon.db.session import get_number_setting, get_session
 from vuzmon.ml import explain, pipeline, plots, trainer
 from vuzmon.ml.dataset import CLASS_NAMES, HEAD_TARGET_INDICATORS, apply_scenario
 from webapp import security
@@ -73,7 +73,7 @@ def index():
     else:
         rows.sort(key=lambda row: row["prediction"]["probabilities"][0], reverse=True)
 
-    size = max(5, min(200, int(get_setting(db, "records_per_page", "25") or 25)))
+    size = get_number_setting(db, "records_per_page", 25, 5, 200)
     total = len(rows)
     pages = max(1, (total + size - 1) // size)
     page = min(max(1, int(args.get("page", "1")) if args.get("page", "1").isdigit() else 1), pages)

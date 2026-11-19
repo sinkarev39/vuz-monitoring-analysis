@@ -37,6 +37,51 @@ TABS = [("admin.users", "Пользователи"), ("admin.feedback", "Обр�
 LIBRARIES = ["flask", "sqlalchemy", "torch", "numpy", "pandas", "scikit-learn", "matplotlib",
              "requests", "beautifulsoup4", "lxml", "python-docx", "openpyxl"]
 
+# Правила проверки настроек: ключ -> (вид значения, наименьшее, наибольшее).
+# Для текста границы — длина строки, для чисел — само значение.
+SETTING_RULES = {
+    "organization_name": ("text", 3, 255),
+    "home_university_id": ("university", None, None),
+    "base_year": ("int", 2017, 2100),
+    "records_per_page": ("int", 5, 200),
+    "risk_threshold": ("float", 0.05, 0.95),
+    "anomaly_quantile": ("float", 0.5, 0.999),
+    "collector_interval": ("float", 0.1, 10.0),
+}
+
+
+def _plain_number(value) -> str:
+    """Число в записи для сообщений и хранения: без лишних нулей, с точкой."""
+    return f"{value:g}"
+
+
+def check_setting(db, key: str, raw: str) -> tuple:
+    """
+    Проверяет значение настройки. Возвращает пару (значение для сохранения,
+    замечание): если замечание не пустое, значение сохранять нельзя.
+    """
+    value = raw.strip()[:255]
+    kind, low, high = SETTING_RULES.get(key, ("text", 0, 255))
+    if kind == "text":
+        if not low <= len(value) <= high:
+            return value, f"введите текст длиной от {low} до {high} символов"
+        return value, ""
+    if kind == "university":
+        if value == "":
+            return value, ""                      # «своя» организация может быть не задана
+        if not value.isdigit() or db.get(University, int(value)) is None:
+            return value, "организации с таким кодом нет в базе данных (код указан в карточке организации)"
+        return str(int(value)), ""
+    limits = f"от {_plain_number(low).replace('.', ',')} до {_plain_number(high).replace('.', ',')}"
+    try:
+        number = (int if kind == "int" else float)(value.replace(",", ".").replace(" ", ""))
+    except ValueError:
+        return value, f"введите {'целое число' if kind == 'int' else 'число'} {limits}"
+    if number != number or not low <= number <= high:          # первое условие отсекает NaN
+        return value, f"значение должно быть {limits}"
+    return _plain_number(number) if kind == "float" else str(number), ""
+
+
 # Матрица прав: действие -> роли, которым оно доступно
 PERMISSIONS = [
     ("Просмотр обзора, организаций, прогноза, нетипичных профилей", ("admin", "analyst", "viewer")),
@@ -210,22 +255,38 @@ def audit():
 def settings():
     """Изменение настроек системы."""
     db = get_session()
-    rows = db.scalars(select(Setting).where(Setting.title != "").order_by(Setting.key)).all()
+    # В панели изменяются только настройки с правилами проверки. Служебные значения (например, код
+    # рабочего набора данных) меняются действиями в разделах системы, где выполняются нужные проверки
+    rows = [row for row in db.scalars(select(Setting).order_by(Setting.key)) if row.key in SETTING_RULES]
+    entered = {}
     if request.method == "POST":
-        changed = []
+        # Сначала проверяются все поля; при любом замечании не сохраняется ничего
+        checked, problems = {}, []
         for row in rows:
-            value = request.form.get(row.key, "").strip()[:255]
-            if value != row.value:
-                changed.append(f"{row.key}: «{row.value}» → «{value}»")
-                row.value = value
-        db.commit()
-        if changed:
-            security.audit("settings_update", "; ".join(changed))
-        flash("Настройки сохранены." if changed else "Изменений нет.", "success" if changed else "info")
-        return redirect(url_for("admin.settings"))
+            if row.key not in request.form:
+                continue                          # поле не передано — настройка остаётся прежней
+            entered[row.key] = request.form[row.key].strip()[:255]
+            checked[row.key], problem = check_setting(db, row.key, request.form[row.key])
+            if problem:
+                problems.append(f"«{row.title}»: {problem}.")
+        if not problems:
+            changed = []
+            for row in rows:
+                if row.key in checked and checked[row.key] != row.value:
+                    changed.append(f"{row.key}: «{row.value}» → «{checked[row.key]}»")
+                    row.value = checked[row.key]
+            db.commit()
+            if changed:
+                security.audit("settings_update", "; ".join(changed))
+            flash("Настройки сохранены." if changed else "Изменений нет.", "success" if changed else "info")
+            return redirect(url_for("admin.settings"))
+        for problem in problems:
+            flash(problem, "error")
+        flash("Настройки не сохранены: исправьте отмеченные значения.", "error")
     home = db.get(Setting, "home_university_id")
     home_university = db.get(University, int(home.value)) if home and home.value.isdigit() else None
-    return _render("admin_settings.html", "Настройки", rows=rows, home_university=home_university)
+    # При ошибке форма показывается снова с введёнными значениями
+    return _render("admin_settings.html", "Настройки", rows=rows, home_university=home_university, entered=entered)
 
 
 # --------------------------------------------------------------------------
