@@ -135,6 +135,13 @@ def create_app(database_url: str = None, testing: bool = False, bootstrap_data: 
         return render_template("error.html", code=413, title="Файл слишком большой",
                                text="Размер загружаемого файла не должен превышать 64 МБ."), 413
 
+    @app.errorhandler(500)
+    def _server_error(_error):
+        # Подробности ошибки Flask записывает в журнал сервера; пользователю показываем страницу на русском языке
+        return render_template("error.html", code=500, title="Внутренняя ошибка",
+                               text="Действие не выполнено из-за ошибки на сервере. Вернитесь на главную страницу; "
+                                    "если ошибка повторяется, сообщите администратору."), 500
+
     # ------------------------------------------------ наборы страниц
     from webapp.views_admin import bp as admin_bp
     from webapp.views_auth import bp as auth_bp

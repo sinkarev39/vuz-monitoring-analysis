@@ -204,6 +204,18 @@ def test_short_dataset_cannot_become_working(client, small_frames):
     assert client.post(f"/data/{new_id}/delete").status_code == 302
 
 
+def test_server_error_page_is_in_russian(app, client, monkeypatch):
+    # Необработанная ошибка показывается страницей системы, а не служебной страницей веб-сервера
+    def broken_page():
+        raise RuntimeError("сбой при формировании страницы")
+    monkeypatch.setitem(app.config, "PROPAGATE_EXCEPTIONS", False)
+    monkeypatch.setitem(app.view_functions, "auth.help_page", broken_page)
+    login(client)
+    response = client.get("/help")
+    assert response.status_code == 500
+    assert "Внутренняя ошибка" in response.get_data(as_text=True)
+
+
 def test_notes_and_search(client):
     login(client, "analyst", "Analyst#2026")
     university = get_session().scalars(select(University).where(University.is_branch.is_(False))).first()
