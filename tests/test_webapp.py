@@ -15,13 +15,15 @@ import pytest
 from sqlalchemy import select
 
 from tests.conftest import login
-from vuzmon.db.models import AuditLog, Experiment, Prediction, University, User
+from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, University, User
 from vuzmon.db.session import get_session
 from webapp.services import jobs
 
-PUBLIC_PAGES = ["/", "/universities", "/compare", "/forecast", "/profiles", "/reports/", "/profile", "/help"]
+PUBLIC_PAGES = ["/", "/universities", "/compare", "/forecast", "/profiles", "/reports/", "/profile", "/help",
+                "/feedback/"]
 ANALYST_PAGES = ["/data/", "/models/", "/models/new"]
-ADMIN_PAGES = ["/admin/users", "/admin/users/new", "/admin/audit", "/admin/settings", "/admin/system", "/admin/roles"]
+ADMIN_PAGES = ["/admin/users", "/admin/users/new", "/admin/feedback", "/admin/audit", "/admin/settings",
+               "/admin/system", "/admin/roles"]
 
 
 def test_anonymous_user_is_redirected_to_login(client):
@@ -186,6 +188,61 @@ def test_admin_manages_users_and_settings(client):
     assert client.get("/universities").get_data(as_text=True).count("/universities/") <= 12
     assert client.get("/reports/audit.xlsx").data[:2] == b"PK"
     assert "settings_update" in client.get("/admin/audit").get_data(as_text=True)
+
+
+def test_feedback_form_validates_input(client):
+    login(client, "analyst", "Analyst#2026")
+    before = len(get_session().scalars(select(FeedbackMessage)).all())
+    short = client.post("/feedback/", data={"category": "question", "subject": "Тема", "text": "коротко"})
+    page = short.get_data(as_text=True)
+    assert short.status_code == 200 and "Тема: от 5 до 160 символов" in page and "Текст обращения: от 10" in page
+    assert 'value="Тема"' in page and "коротко</textarea>" in page         # введённое не теряется
+    unknown = client.post("/feedback/", data={"category": "spam", "subject": "Обычная тема",
+                                              "text": "Достаточно длинный текст"})
+    assert "Выберите вид обращения" in unknown.get_data(as_text=True)
+    assert len(get_session().scalars(select(FeedbackMessage)).all()) == before
+
+
+def test_feedback_message_and_admin_reply(client):
+    """Сквозной сценарий обратной связи: обращение пользователя — ответ администратора."""
+    login(client, "analyst", "Analyst#2026")
+    form = {"category": "data", "subject": "Расхождение по показателю E.2",
+            "text": "В карточке организации значение за 2024 год\nне совпадает с сайтом мониторинга."}
+    sent = client.post("/feedback/", data=form, follow_redirects=True)
+    assert "Обращение отправлено администратору" in sent.get_data(as_text=True)
+    db = get_session()
+    message = db.scalars(select(FeedbackMessage).order_by(FeedbackMessage.id.desc())).first()
+    assert message.status == "new" and message.author.login == "analyst" and message.reply == ""
+    assert db.scalars(select(AuditLog).order_by(AuditLog.id.desc())).first().action == "feedback_send"
+    assert "ответа пока нет" in client.get("/feedback/").get_data(as_text=True)
+
+    # Чужие обращения пользователю не видны, а отвечать может только администратор
+    other = client.application.test_client()
+    login(other, "viewer", "Viewer#2026")
+    assert form["subject"] not in other.get("/feedback/").get_data(as_text=True)
+    assert other.post(f"/admin/feedback/{message.id}", data={"reply": "ответ", "status": "closed"}).status_code == 403
+    assert client.post(f"/admin/feedback/{message.id}", data={"reply": "ответ", "status": "closed"}).status_code == 403
+
+    admin = client.application.test_client()
+    login(admin)
+    listing = admin.get("/admin/feedback?status=new").get_data(as_text=True)
+    new_count = len(db.scalars(select(FeedbackMessage).where(FeedbackMessage.status == "new")).all())
+    assert form["subject"] in listing and f"Новое: {new_count}" in listing
+    empty = admin.post(f"/admin/feedback/{message.id}", data={"reply": "", "status": "closed"}, follow_redirects=True)
+    assert "напишите ответ пользователю" in empty.get_data(as_text=True)
+    assert admin.post("/admin/feedback/999999", data={"reply": "ответ", "status": "closed"}).status_code == 404
+    answer = "Значение исправлено: набор данных за 2024 год собран заново."
+    saved = admin.post(f"/admin/feedback/{message.id}", data={"reply": answer, "status": "closed"},
+                       follow_redirects=True)
+    assert f"Обращение № {message.id} сохранено" in saved.get_data(as_text=True)
+    db.expire_all()
+    message = db.get(FeedbackMessage, message.id)
+    assert message.status == "closed" and message.reply == answer
+    assert message.responder.login == "admin" and message.replied_at is not None
+
+    # Автор видит ответ и новое состояние своего обращения
+    page = client.get("/feedback/").get_data(as_text=True)
+    assert answer in page and "закрыто" in page
 
 
 def test_profile_password_change(client):
