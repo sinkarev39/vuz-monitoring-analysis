@@ -37,7 +37,7 @@ p { margin: 0 0 10px; }
 .nowrap { white-space: nowrap; }
 .right { text-align: right; }
 .center { text-align: center; }
-.prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.prewrap { white-space: pre-wrap; overflow-wrap: break-word; }
 
 /* ---------- каркас страницы ---------- */
 .layout { display: flex; min-height: 100vh; }
@@ -96,6 +96,8 @@ table.data th { font-size: 12px; color: var(--muted); font-weight: 600; backgrou
 table.data tr:hover td { background: #f8fbfe; }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.kv td:first-child { color: var(--muted); width: 38%; }
+/* Столбец с длинным текстом не сжимается на узком экране: таблица прокручивается внутри .table-wrap */
+table.data .col-text { min-width: 240px; }
 .pager { display: flex; gap: 6px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
 .pager a, .pager span { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
 .pager span.current { background: var(--primary); color: #fff; border-color: var(--primary); }
