@@ -12,7 +12,6 @@ import shutil
 import zipfile
 from datetime import datetime
 
-import pandas as pd
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from sqlalchemy import select
 
@@ -100,25 +99,7 @@ def _read_uploaded_tables(files) -> dict:
                 raise ValueError(f"файл {name} не является ZIP-архивом или повреждён") from None
         elif name in DATASET_FILES.values():
             contents[name] = data
-    return {table: read_table(contents, filename) for table, filename in DATASET_FILES.items()}
-
-
-def read_table(contents: dict, filename: str) -> pd.DataFrame:
-    """
-    Читает одну таблицу набора из словаря {имя файла: байты}. Сообщения библиотек
-    о нечитаемом файле заменяются понятными пользователю (на русском языке).
-    """
-    if filename not in contents:
-        raise ValueError(f"не найден файл {filename}")
-    try:
-        return pd.read_csv(io.BytesIO(contents[filename]), encoding="utf-8")
-    except UnicodeDecodeError:
-        raise ValueError(f"файл {filename} должен быть в кодировке UTF-8") from None
-    except pd.errors.EmptyDataError:
-        raise ValueError(f"файл {filename} пуст") from None
-    except pd.errors.ParserError:
-        raise ValueError(f"файл {filename} не удалось прочитать как таблицу CSV "
-                         f"(разделитель — запятая, первая строка — названия столбцов)") from None
+    return {table: validation.read_csv_table(contents, filename) for table, filename in DATASET_FILES.items()}
 
 
 @bp.route("/upload", methods=["POST"])

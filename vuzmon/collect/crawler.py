@@ -293,12 +293,14 @@ def load_frames(data_dir=config.MONITORING_DIR) -> dict:
             for name, filename in DATASET_FILES.items()}
 
 
-def load_frames_from_url(base_url: str) -> dict:
+def load_frames_from_url(base_url: str = config.DATASET_URL) -> dict:
     """
     Загружает набор данных напрямую по ссылке: base_url — адрес каталога, в
-    котором лежат CSV-файлы набора (например, «сырой» адрес каталога
-    data/monitoring в публичном git-репозитории).
+    котором лежат CSV-файлы набора (по умолчанию — каталог data/monitoring
+    в публичном репозитории проекта), либо адрес ZIP-архива с этими файлами.
+
+    Скачивание выполняет модуль remote: с таймаутом, ограничением размера и
+    понятными сообщениями об ошибках (исключение ValueError).
     """
-    base_url = base_url.rstrip("/")
-    return {name: pd.read_csv(f"{base_url}/{filename}", encoding="utf-8")
-            for name, filename in DATASET_FILES.items()}
+    from vuzmon.collect.remote import load_frames_from_url as load   # модуль remote сам использует crawler
+    return load(base_url)

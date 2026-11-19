@@ -34,6 +34,12 @@ DATABASE_URL = os.environ.get("VUZMON_DATABASE_URL", f"sqlite:///{DB_PATH}")
 # деятельности образовательных организаций высшего образования (ГИВЦ Минобрнауки)
 MONITORING_BASE_URL = "https://monitoring.miccedu.ru"
 
+# Адрес набора данных системы в её публичном репозитории: каталог с пятью CSV-файлами.
+# По этой ссылке набор можно получить напрямую (блокнот 01, раздел «Данные» веб-приложения)
+DATASET_URL = os.environ.get(
+    "VUZMON_DATASET_URL",
+    "https://raw.githubusercontent.com/sinkarev39/vuz-monitoring-analysis/main/data/monitoring")
+
 # Годы мониторинга, страницы которых имеют одинаковую структуру
 # (пятилетняя динамика показателей и медианные значения)
 DEFAULT_YEARS = (2021, 2022, 2023, 2024, 2025)

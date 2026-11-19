@@ -13,6 +13,8 @@
 сразу, а замечание называет файл, столбец, строку и само значение.
 """
 
+import io
+
 import pandas as pd
 
 from vuzmon import config
@@ -40,6 +42,24 @@ YEAR_COLUMNS = {"institutions": ("year",), "main": ("page_year", "value_year"), 
                 "extra": ("year",)}
 YEAR_MIN, YEAR_MAX = 2000, 2100
 MAX_PROBLEMS = 8      # больше замечаний не собираем: пользователю достаточно первых
+
+
+def read_csv_table(contents: dict, filename: str) -> pd.DataFrame:
+    """
+    Читает одну таблицу набора из словаря {имя файла: байты}. Сообщения библиотек
+    о нечитаемом файле заменяются понятными пользователю (на русском языке).
+    """
+    if filename not in contents:
+        raise ValueError(f"не найден файл {filename}")
+    try:
+        return pd.read_csv(io.BytesIO(contents[filename]), encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValueError(f"файл {filename} должен быть в кодировке UTF-8") from None
+    except pd.errors.EmptyDataError:
+        raise ValueError(f"файл {filename} пуст") from None
+    except pd.errors.ParserError:
+        raise ValueError(f"файл {filename} не удалось прочитать как таблицу CSV "
+                         f"(разделитель — запятая, первая строка — названия столбцов)") from None
 
 
 def _numeric_columns(table: str, frame: pd.DataFrame) -> list:
