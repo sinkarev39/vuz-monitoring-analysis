@@ -11,6 +11,7 @@
     python check_install.py                          — во втором окне: проверка http://127.0.0.1:5000
     python check_install.py --url http://127.0.0.1:8080
     python check_install.py --collect                — дополнительно получить данные с сайта мониторинга
+    python check_install.py --wait 120               — ждать запуска приложения до 120 секунд
     python check_install.py --report protocol.md     — сохранить протокол в файл
 
 Проверяются: вход под тремя ролями и состав меню, запрет чужих разделов,
@@ -286,19 +287,43 @@ def check_collect(protocol: Protocol, analyst: Visitor) -> None:
                  f"рабочий набор {before}, страница «Обзор» — код 200", still_working)
 
 
+def wait_for_application(url: str, seconds: int) -> str:
+    """
+    Ждёт, пока по адресу начнёт отвечать именно эта система. Возвращает пустую строку
+    или описание того, что получено вместо страницы входа.
+    """
+    deadline = time.time() + seconds
+    while True:
+        try:
+            response = Visitor(url).get("/login")
+            # Проверяем не только код ответа: порт может быть занят другой программой
+            if response.status_code == 200 and 'name="_csrf"' in response.text:
+                return ""
+            answer = f"отвечает другая программа (код {response.status_code}, сервер " \
+                     f"«{response.headers.get('Server', 'не указан')}»)"
+        except requests.RequestException as error:
+            answer = f"нет ответа ({type(error).__name__})"
+        if time.time() >= deadline:
+            return answer
+        time.sleep(2)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Проверка установки системы по основным сценариям работы")
     parser.add_argument("--url", default="http://127.0.0.1:5000", help="адрес запущенного приложения")
     parser.add_argument("--collect", action="store_true",
                         help="проверить получение данных с сайта мониторинга (нужен доступ к Интернету)")
     parser.add_argument("--report", default="", help="файл, в который сохранить протокол (Markdown)")
+    parser.add_argument("--wait", type=int, default=0, metavar="СЕКУНД",
+                        help="сколько секунд ждать запуска приложения (по умолчанию не ждать)")
     args = parser.parse_args()
 
-    try:
-        Visitor(args.url).get("/login")
-    except requests.RequestException as error:
-        print(f"Приложение по адресу {args.url} не отвечает: {type(error).__name__}.\n"
-              f"Запустите его командой «python main.py» и повторите проверку.")
+    answer = wait_for_application(args.url, args.wait)
+    if answer:
+        print(f"Система по адресу {args.url} не найдена: {answer}.\n"
+              f"Запустите её командой «python main.py» и повторите проверку. Если порт занят другой программой\n"
+              f"(в macOS порт 5000 использует служба AirPlay), запустите систему на другом порту:\n"
+              f"«python main.py --port 8080» и «python check_install.py --url http://127.0.0.1:8080».")
         return 1
 
     protocol = Protocol()
