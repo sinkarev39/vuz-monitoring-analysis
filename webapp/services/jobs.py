@@ -265,15 +265,21 @@ def _collect_job(report, years: list, user_id: int, load_to_db: bool, limit: int
                                   f"{client.stats['from_cache']}, ошибок: {len(errors)}")
     db.add(dataset)
     db.commit()
+    note = ""
     if load_to_db:
-        report("Загрузка данных в базу", 0.95)
-        load_monitoring_frames(db, frames)
-        store.set_active_dataset(db, dataset.id)
+        # Пробный сбор (один год, несколько организаций) рабочим набором стать не может
+        problem = store.activation_problem(dataset.location)
+        if problem:
+            note = f". Набор сохранён, но рабочим не сделан. {problem}"
+        else:
+            report("Загрузка данных в базу", 0.95)
+            load_monitoring_frames(db, frames)
+            store.set_active_dataset(db, dataset.id)
     db.add(AuditLog(user_id=user_id, action="collect_finish",
                     details=f"Набор данных №{dataset.id}: организаций {len(frames['institutions'])}, "
-                            f"ошибок {len(errors)}"))
+                            f"ошибок {len(errors)}{note}"))
     db.commit()
-    report(f"Готово: записей об организациях — {len(frames['institutions'])}, ошибок — {len(errors)}", 1.0)
+    report(f"Готово: записей об организациях — {len(frames['institutions'])}, ошибок — {len(errors)}{note}", 1.0)
 
 
 def start_collect(years: list, user_id: int, load_to_db: bool = True, limit: int = None) -> str:

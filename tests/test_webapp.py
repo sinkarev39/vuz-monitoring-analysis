@@ -183,6 +183,27 @@ def test_new_dataset_does_not_replace_working_one(client, small_frames):
         store.set_active_dataset(get_session(), working_id)
 
 
+def test_short_dataset_cannot_become_working(client, small_frames):
+    # Набор за один год нельзя разбить по времени, поэтому рабочим он не становится
+    login(client, "analyst", "Analyst#2026")
+    last_year = int(small_frames["institutions"]["year"].max())
+    one_year = dict(small_frames)
+    for table, column in (("institutions", "year"), ("medians", "year"), ("extra", "year"), ("main", "page_year")):
+        one_year[table] = small_frames[table][small_frames[table][column] == last_year]
+    new_id = _upload_dataset(client, one_year, "один год")
+    db = get_session()
+    working_id = store.active_dataset(db).id
+    universities = len(db.scalars(select(University)).all())
+
+    page = client.post(f"/data/{new_id}/activate", follow_redirects=True).get_data(as_text=True)
+    assert "нельзя сделать рабочим" in page and "за четыре года" in page
+    db = get_session()
+    assert store.active_dataset(db).id == working_id                        # рабочий набор прежний
+    assert len(db.scalars(select(University)).all()) == universities        # данные в базе не заменены
+    assert client.get("/").status_code == 200 and client.get("/forecast").status_code == 200
+    assert client.post(f"/data/{new_id}/delete").status_code == 302
+
+
 def test_notes_and_search(client):
     login(client, "analyst", "Analyst#2026")
     university = get_session().scalars(select(University).where(University.is_branch.is_(False))).first()

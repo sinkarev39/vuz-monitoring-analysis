@@ -201,8 +201,10 @@ def activate(dataset_id: int):
     """Делает набор данных рабочим и перезагружает его в базу данных."""
     db = get_session()
     dataset = _dataset_or_404(db, dataset_id)
-    if not store.dataset_is_complete(dataset.location):
-        flash("Файлы набора данных не найдены на диске.", "error")
+    # Набор, по которому нельзя построить выборку, рабочим не делаем: иначе перестанут открываться страницы
+    problem = store.activation_problem(dataset.location)
+    if problem:
+        flash(f"Набор данных №{dataset.id} нельзя сделать рабочим. {problem}", "error")
         return redirect(url_for("data.index"))
     stats = load_monitoring_frames(db, store.frames(dataset.location))
     store.set_active_dataset(db, dataset.id)

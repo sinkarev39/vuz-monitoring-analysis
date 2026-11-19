@@ -104,6 +104,23 @@ def active_dataset(db):
     return db.scalars(select(Dataset).order_by(Dataset.id)).first()
 
 
+def activation_problem(location: str) -> str:
+    """
+    Причина, по которой набор данных нельзя сделать рабочим (пустая строка — можно).
+
+    Выполняется та же подготовка выборки, что и на страницах системы: если она
+    невозможна (например, в наборе меньше четырёх лет мониторинга), с таким
+    рабочим набором не открылись бы «Обзор», «Прогноз» и отчёты.
+    """
+    if not dataset_is_complete(location):
+        return "Файлы набора данных не найдены на диске."
+    try:
+        prepared(location)
+    except ValueError as error:
+        return f"{error}."
+    return ""
+
+
 def set_active_dataset(db, dataset_id: int) -> None:
     setting = db.get(Setting, "active_dataset_id")
     if setting is None:
