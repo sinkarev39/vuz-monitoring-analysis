@@ -100,12 +100,15 @@ def ensure_default_dataset() -> None:
             location = store.relative(config.MONITORING_DIR)
             frames = store.frames(location)
             years = sorted(int(y) for y in frames["institutions"]["year"].unique())
-            db.add(Dataset(name="Мониторинг вузов — данные с сайта ГИВЦ Минобрнауки", source="site",
-                           location=location, years=", ".join(map(str, years)),
-                           rows_count=len(frames["institutions"]),
-                           description="Информационно-аналитические материалы мониторинга эффективности "
-                                       "деятельности образовательных организаций высшего образования"))
+            dataset = Dataset(name="Мониторинг вузов — данные с сайта ГИВЦ Минобрнауки", source="site",
+                              location=location, years=", ".join(map(str, years)),
+                              rows_count=len(frames["institutions"]),
+                              description="Информационно-аналитические материалы мониторинга эффективности "
+                                          "деятельности образовательных организаций высшего образования")
+            db.add(dataset)
             db.commit()
+            # Поставляемый набор явно назначается рабочим: наборы, добавленные позже, его не подменят
+            store.set_active_dataset(db, dataset.id)
             if db.scalar(select(func.count()).select_from(University)) == 0:
                 logger.info("Первый запуск: загрузка набора данных в базу")
                 load_monitoring_frames(db, frames)

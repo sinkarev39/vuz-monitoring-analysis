@@ -87,13 +87,21 @@ def model(model_file: str) -> registry.LoadedModel:
 # Активные набор данных и модели
 # --------------------------------------------------------------------------
 def active_dataset(db):
-    """Набор данных, с которым сейчас работает система (по настройке или самый свежий)."""
+    """
+    Набор данных, с которым сейчас работает система.
+
+    Рабочий набор задаётся настройкой active_dataset_id. Пока она не задана,
+    рабочим считается набор, зарегистрированный первым: именно его данные
+    загружены в базу при первом запуске. Новый набор (собранный с сайта или
+    загруженный из файлов) становится рабочим только по явному действию
+    пользователя, а не потому, что он создан последним.
+    """
     setting = db.get(Setting, "active_dataset_id")
     if setting is not None and setting.value.isdigit():
         dataset = db.get(Dataset, int(setting.value))
         if dataset is not None:
             return dataset
-    return db.scalars(select(Dataset).order_by(Dataset.id.desc())).first()
+    return db.scalars(select(Dataset).order_by(Dataset.id)).first()
 
 
 def set_active_dataset(db, dataset_id: int) -> None:

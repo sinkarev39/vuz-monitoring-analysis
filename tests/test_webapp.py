@@ -15,9 +15,10 @@ import pytest
 from sqlalchemy import select
 
 from tests.conftest import login
-from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, University, User
+from vuzmon.collect.crawler import DATASET_FILES
+from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, Setting, University, User
 from vuzmon.db.session import get_session
-from webapp.services import jobs
+from webapp.services import jobs, store
 
 PUBLIC_PAGES = ["/", "/universities", "/compare", "/forecast", "/profiles", "/reports/", "/profile", "/help",
                 "/feedback/"]
@@ -149,6 +150,37 @@ def test_dataset_download_and_upload_roundtrip(client):
                          content_type="multipart/form-data", follow_redirects=True)
     assert "не загружен" in broken.get_data(as_text=True)
     assert client.post("/data/2/delete").status_code == 302 and client.get("/data/2").status_code == 404
+
+
+def _upload_dataset(client, frames: dict, name: str) -> int:
+    """Загружает набор данных ZIP-архивом и возвращает его номер."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for table, filename in DATASET_FILES.items():
+            archive.writestr(filename, frames[table].to_csv(index=False))
+    buffer.seek(0)
+    response = client.post("/data/upload", data={"files": (buffer, "dataset.zip"), "name": name},
+                           content_type="multipart/form-data")
+    assert response.status_code == 302
+    return int(response.headers["Location"].rsplit("/", 1)[1])
+
+
+def test_new_dataset_does_not_replace_working_one(client, small_frames):
+    # Ошибка, найденная при проверке установки: пока рабочий набор не задан настройкой (так было
+    # в поставляемой базе), рабочим считался набор, созданный последним, — в том числе пробный
+    login(client, "analyst", "Analyst#2026")
+    db = get_session()
+    working_id = store.active_dataset(db).id
+    db.delete(db.get(Setting, "active_dataset_id"))
+    db.commit()
+    try:
+        new_id = _upload_dataset(client, small_frames, "ещё один набор")
+        assert new_id != working_id
+        assert store.active_dataset(get_session()).id == working_id
+        assert client.get("/").status_code == 200
+        assert client.post(f"/data/{new_id}/delete").status_code == 302
+    finally:
+        store.set_active_dataset(get_session(), working_id)
 
 
 def test_notes_and_search(client):
