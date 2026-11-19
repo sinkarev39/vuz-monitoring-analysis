@@ -10,6 +10,7 @@
 import io
 import json
 import zipfile
+from datetime import timedelta
 
 import pytest
 from docx import Document
@@ -25,6 +26,7 @@ from vuzmon.db.session import get_number_setting, get_session, init_db
 from vuzmon.ml import pipeline
 from webapp.forms import to_int
 from webapp.services import jobs, store
+from webapp.views_auth import LOCK_MINUTES, MAX_FAILED_LOGINS
 
 PUBLIC_PAGES = ["/", "/universities", "/compare", "/forecast", "/profiles", "/reports/", "/profile", "/help",
                 "/feedback/"]
@@ -60,6 +62,47 @@ def test_login_does_not_follow_external_redirect(client, target, location):
     response = client.post("/login", query_string={"next": target}, data={"login": "admin", "password": "Admin#2026"})
     assert response.status_code == 302 and response.headers["Location"] == location
     client.post("/logout")
+
+
+def test_login_is_suspended_after_repeated_failures(client):
+    # Недочёт: число попыток входа не ограничивалось, пароль можно было подбирать перебором
+    admin = client.application.test_client()
+    login(admin)
+    form = {"login": "locktest", "password": "LockTest#2026", "role_id": "3", "is_active": "1"}
+    assert admin.post("/admin/users/new", data=form).status_code == 302
+
+    def attempt(password: str, name: str = "locktest"):
+        response = client.post("/login", data={"login": name, "password": password})
+        return response.status_code, response.get_data(as_text=True)
+
+    # Верный пароль обнуляет счётчик: четыре ошибки, вход, ещё четыре ошибки — вход не приостановлен
+    for _ in range(MAX_FAILED_LOGINS - 1):
+        assert attempt("wrong")[0] == 200
+    assert attempt("LockTest#2026")[0] == 302
+    client.post("/logout")
+    for number in range(1, MAX_FAILED_LOGINS):
+        code, text = attempt("wrong")
+        assert code == 200 and "Неверный логин или пароль" in text
+        assert ("Осталось попыток" in text) == (MAX_FAILED_LOGINS - number <= 2)
+    assert attempt("wrong")[0] == 200                                  # пятая ошибка подряд
+    code, text = attempt("LockTest#2026")                              # теперь не помогает и верный пароль
+    assert code == 429 and "Слишком много неудачных попыток входа" in text and "мин." in text
+    assert client.get("/").status_code == 302
+    db = get_session()
+    assert db.scalars(select(AuditLog).order_by(AuditLog.id.desc())).first().action == "login_blocked"
+
+    # Другие учётные записи продолжают работать; несуществующий логин приостанавливается так же
+    assert login(client.application.test_client(), "analyst", "Analyst#2026").status_code == 302
+    for _ in range(MAX_FAILED_LOGINS):
+        assert attempt("wrong", "nobody")[0] == 200
+    assert attempt("wrong", "nobody")[0] == 429
+
+    # Через LOCK_MINUTES минут вход снова возможен (время имитируется сдвигом записей журнала)
+    for row in db.scalars(select(AuditLog).where(AuditLog.action == "login_failed",
+                                                 AuditLog.details.like("%locktest"))):
+        row.created_at -= timedelta(minutes=LOCK_MINUTES + 1)
+    db.commit()
+    assert attempt("LockTest#2026")[0] == 302
 
 
 @pytest.mark.parametrize("username, password, allowed, forbidden", [
