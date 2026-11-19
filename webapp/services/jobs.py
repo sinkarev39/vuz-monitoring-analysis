@@ -13,7 +13,6 @@
 import json
 import logging
 import threading
-import traceback
 import uuid
 from datetime import datetime
 
@@ -216,7 +215,8 @@ def _training_job(report, experiment_id: int) -> None:
         db.rollback()
         experiment = db.get(Experiment, experiment_id)
         experiment.status = "failed"
-        experiment.message = f"{error}\n{traceback.format_exc(limit=3)}"
+        # На странице эксперимента — краткая причина; полная трассировка пишется в журнал сервера
+        experiment.message = f"Обучение не выполнено. Причина: {type(error).__name__}: {error}"[:1000]
         raise
     finally:
         experiment.finished_at = datetime.now()

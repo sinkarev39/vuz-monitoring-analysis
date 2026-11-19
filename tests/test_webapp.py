@@ -22,6 +22,7 @@ from vuzmon.collect.crawler import DATASET_FILES
 from vuzmon.db.models import (AuditLog, Dataset, Experiment, FeedbackMessage, Prediction, Setting, University,
                               User)
 from vuzmon.db.session import get_number_setting, get_session, init_db
+from vuzmon.ml import pipeline
 from webapp.forms import to_int
 from webapp.services import jobs, store
 
@@ -263,6 +264,53 @@ def test_upload_rejects_dataset_with_wrong_values(client, small_frames, monkeypa
     monkeypatch.undo()
     assert store.active_dataset(get_session()).id == working_id and client.get("/").status_code == 200
     assert client.post(f"/data/{new_id}/delete").status_code == 302
+
+
+def test_unreadable_files_and_failed_training_are_reported_in_russian(client, monkeypatch):
+    # Недочёт: при нечитаемом файле пользователь видел служебное сообщение библиотеки на английском языке
+    login(client, "analyst", "Analyst#2026")
+
+    def upload(files: dict, url: str = "/data/upload") -> str:
+        page = client.post(url, data=files, content_type="multipart/form-data", follow_redirects=True)
+        assert page.status_code == 200
+        return page.get_data(as_text=True)
+
+    def archive(content: bytes) -> io.BytesIO:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as packed:
+            for filename in DATASET_FILES.values():
+                packed.writestr(filename, content)
+        buffer.seek(0)
+        return buffer
+
+    text = upload({"files": (io.BytesIO(b"not a zip"), "data.zip")})
+    assert "файл data.zip не является ZIP-архивом или повреждён" in text and "not a zip file" not in text
+    text = upload({"files": (archive(b"\xff\xfe\x00bad"), "data.zip")})
+    assert "должен быть в кодировке UTF-8" in text and "codec" not in text
+    text = upload({"files": (archive(b""), "data.zip")})
+    assert "файл institutions.csv пуст" in text and "No columns" not in text
+
+    text = upload({"file": (io.BytesIO(b"hello world"), "fake.pt")}, "/models/upload")
+    assert "Файл не удалось загрузить как модель" in text and "повреждён или создан другой программой" in text
+
+    # Сбой обучения: на странице эксперимента — краткая причина без трассировки и путей к файлам сервера
+    def failing(*args, **kwargs):
+        raise RuntimeError("size mismatch")
+    monkeypatch.setattr(pipeline, "run_mlp", failing)
+    db = get_session()
+    experiment = Experiment(name="сбой обучения", model_type="mlp", params_json="{}", status="new",
+                            dataset_id=store.active_dataset(db).id)
+    db.add(experiment)
+    db.commit()
+    with pytest.raises(RuntimeError):
+        jobs._training_job(lambda *a: None, experiment.id)
+    db.expire_all()
+    experiment = db.get(Experiment, experiment.id)
+    assert experiment.status == "failed"
+    assert experiment.message == "Обучение не выполнено. Причина: RuntimeError: size mismatch"
+    page = client.get(f"/models/{experiment.id}").get_data(as_text=True)
+    assert "Обучение завершилось ошибкой" in page and "Traceback" not in page
+    assert client.post(f"/models/{experiment.id}/delete").status_code == 302
 
 
 def test_server_error_page_is_in_russian(app, client, monkeypatch):

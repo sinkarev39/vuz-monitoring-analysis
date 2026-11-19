@@ -90,19 +90,35 @@ def _read_uploaded_tables(files) -> dict:
         name = (uploaded.filename or "").replace("\\", "/").split("/")[-1].lower()
         data = uploaded.read()
         if name.endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                for member in archive.namelist():
-                    base = member.split("/")[-1].lower()
-                    if base in DATASET_FILES.values():
-                        contents[base] = archive.read(member)
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    for member in archive.namelist():
+                        base = member.split("/")[-1].lower()
+                        if base in DATASET_FILES.values():
+                            contents[base] = archive.read(member)
+            except zipfile.BadZipFile:
+                raise ValueError(f"файл {name} не является ZIP-архивом или повреждён") from None
         elif name in DATASET_FILES.values():
             contents[name] = data
-    tables = {}
-    for table, filename in DATASET_FILES.items():
-        if filename not in contents:
-            raise ValueError(f"Не найден файл {filename}")
-        tables[table] = pd.read_csv(io.BytesIO(contents[filename]), encoding="utf-8")
-    return tables
+    return {table: read_table(contents, filename) for table, filename in DATASET_FILES.items()}
+
+
+def read_table(contents: dict, filename: str) -> pd.DataFrame:
+    """
+    Читает одну таблицу набора из словаря {имя файла: байты}. Сообщения библиотек
+    о нечитаемом файле заменяются понятными пользователю (на русском языке).
+    """
+    if filename not in contents:
+        raise ValueError(f"не найден файл {filename}")
+    try:
+        return pd.read_csv(io.BytesIO(contents[filename]), encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValueError(f"файл {filename} должен быть в кодировке UTF-8") from None
+    except pd.errors.EmptyDataError:
+        raise ValueError(f"файл {filename} пуст") from None
+    except pd.errors.ParserError:
+        raise ValueError(f"файл {filename} не удалось прочитать как таблицу CSV "
+                         f"(разделитель — запятая, первая строка — названия столбцов)") from None
 
 
 @bp.route("/upload", methods=["POST"])
@@ -116,8 +132,8 @@ def upload():
         return redirect(url_for("data.index"))
     try:
         tables = _read_uploaded_tables(files)
-    except (ValueError, zipfile.BadZipFile, pd.errors.ParserError, UnicodeDecodeError) as error:
-        flash(f"Набор данных не загружен: {error}", "error")
+    except ValueError as error:
+        flash(f"Набор данных не загружен: {error}.", "error")
         return redirect(url_for("data.index"))
     # Содержимое проверяется до сохранения: набор с ошибками на диск и в перечень не попадает
     problems = validation.check_frames(tables)

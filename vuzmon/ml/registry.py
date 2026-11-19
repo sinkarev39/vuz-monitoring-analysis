@@ -111,7 +111,13 @@ def load_model(path) -> LoadedModel:
     Тип модели определяется по полю 'format' внутри файла.
     """
     path = Path(path)
-    payload = torch.load(path, map_location="cpu", weights_only=True)
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception as error:
+        # Сообщения PyTorch о повреждённом файле служебные и на английском языке; пользователю
+        # важно другое: это не файл модели. Исходная причина сохраняется как __cause__
+        raise ValueError("Файл повреждён или создан другой программой: прочитать его как модель "
+                         "PyTorch не удалось") from error
     if not isinstance(payload, dict) or "format" not in payload:
         raise ValueError("Файл не является моделью системы анализа данных мониторинга")
     config = payload["model_config"]

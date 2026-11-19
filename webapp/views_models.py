@@ -8,6 +8,7 @@
 """
 
 import json
+import logging
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from webapp import security
 from webapp.services import bootstrap, jobs, queries, store
 
 bp = Blueprint("models", __name__, url_prefix="/models")
+logger = logging.getLogger(__name__)
 
 STATUS_TITLES = {"new": "в очереди", "running": "обучается", "done": "готова", "failed": "ошибка"}
 
@@ -261,7 +263,10 @@ def upload():
             user_id=security.current_user().id)
     except Exception as error:   # файл не является моделью системы или повреждён
         path.unlink(missing_ok=True)
-        flash(f"Файл не удалось загрузить как модель: {error}", "error")
+        logger.warning("Файл %s не загружен как модель: %r", uploaded.filename, error.__cause__ or error)
+        # Причины, названные самой системой, показываются как есть; прочие — общим пояснением
+        reason = str(error) if isinstance(error, ValueError) else "Содержимое файла не соответствует модели системы"
+        flash(f"Файл не удалось загрузить как модель. {reason}.", "error")
         return redirect(url_for("models.index"))
     security.audit("model_upload", f"Загружена модель из файла: эксперимент №{experiment.id}")
     flash("Модель загружена из файла и готова к применению.", "success")
