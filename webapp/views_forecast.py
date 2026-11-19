@@ -8,10 +8,10 @@
 
 import numpy as np
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from vuzmon.config import MAIN_INDICATOR_TITLES
-from vuzmon.db.models import FederalDistrict, Region, University
+from vuzmon.db.models import FederalDistrict, University
 from vuzmon.db.session import get_number_setting, get_session
 from vuzmon.ml import explain, pipeline, plots, trainer
 from vuzmon.ml.dataset import CLASS_NAMES, HEAD_TARGET_INDICATORS, apply_scenario
@@ -41,28 +41,9 @@ def index():
     current = queries.current_classes(prepared) if prepared else {}
     experiment = store.active_experiment(db, "mlp")
     args = request.args
-
-    query = select(University).join(Region, Region.id == University.region_id) \
-        .where(University.id.in_(list(predictions) or [-1]))
-    search = args.get("q", "").strip()
-    if search:
-        query = query.where(queries.name_filter(search))
-    if args.get("district", "").isdigit():
-        query = query.where(Region.district_id == int(args["district"]))
-    rows = []
-    for item in db.scalars(query):
-        prediction = predictions[item.id]
-        now_class = current.get(item.id)
-        change = 0 if now_class is None else prediction["predicted_class"] - now_class
-        if args.get("predicted") in ("0", "1", "2") and prediction["predicted_class"] != int(args["predicted"]):
-            continue
-        if args.get("change") == "down" and change >= 0:
-            continue
-        if args.get("change") == "up" and change <= 0:
-            continue
-        if args.get("change") == "same" and change != 0:
-            continue
-        rows.append({"item": item, "prediction": prediction, "current": now_class, "change": change})
+    # Порог вероятности зоны риска задаётся администратором в настройках системы
+    risk_threshold = get_number_setting(db, "risk_threshold", 0.5, 0.05, 0.95)
+    rows = queries.forecast_rows(db, args, predictions, current, risk_threshold)
 
     # Сортировка: по вероятности зоны риска, по уверенности или по названию
     sort = args.get("sort", "risk")
@@ -84,6 +65,7 @@ def index():
         page=page, pages=pages, filters={k: v for k, v in args.items() if k != "page" and v},
         counts=counts, experiment=experiment, base_year=first["base_year"] if first else None,
         target_year=first["target_year"] if first else None, built_at=first["created_at"] if first else None,
+        risk_threshold=risk_threshold, at_risk=queries.risk_count(predictions, risk_threshold),
         districts=db.scalars(select(FederalDistrict).order_by(FederalDistrict.name)).all())
 
 

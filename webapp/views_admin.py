@@ -42,7 +42,6 @@ LIBRARIES = ["flask", "sqlalchemy", "torch", "numpy", "pandas", "scikit-learn", 
 SETTING_RULES = {
     "organization_name": ("text", 3, 255),
     "home_university_id": ("university", None, None),
-    "base_year": ("int", 2017, 2100),
     "records_per_page": ("int", 5, 200),
     "risk_threshold": ("float", 0.05, 0.95),
     "anomaly_quantile": ("float", 0.5, 0.999),

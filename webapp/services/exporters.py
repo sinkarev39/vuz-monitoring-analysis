@@ -93,11 +93,13 @@ def _table(document: Document, header: list, rows: list, widths: list = None, fo
     return table
 
 
-def _footer_note(document: Document, user_name: str) -> None:
+def _footer_note(document: Document, user_name: str, organization: str = "") -> None:
+    """Подпись документа: когда, в какой системе, в какой организации и кем он сформирован."""
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(14)
+    place = f" ({organization})" if organization else ""
     run = paragraph.add_run(f"Документ сформирован {datetime.now():%d.%m.%Y %H:%M} в информационной системе "
-                            f"«{SYSTEM_NAME}». Исполнитель: {user_name}.")
+                            f"«{SYSTEM_NAME}»{place}. Исполнитель: {user_name}.")
     run.italic = True
     run.font.size = Pt(10)
     run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
@@ -114,7 +116,7 @@ def _to_buffer(document) -> io.BytesIO:
 # Аналитическая справка по организации (Word)
 # --------------------------------------------------------------------------
 def university_docx(item, table: dict, prediction: dict, explanation: dict, notes: list,
-                    user_name: str) -> io.BytesIO:
+                    user_name: str, organization: str = "") -> io.BytesIO:
     document = _new_document("Аналитическая справка", item.short_name)
     _heading(document, "1. Общие сведения")
     _table(document, ["Параметр", "Значение"], [
@@ -171,7 +173,7 @@ def university_docx(item, table: dict, prediction: dict, explanation: dict, note
                                    style="List Bullet")
     else:
         document.add_paragraph("Заметок нет.")
-    _footer_note(document, user_name)
+    _footer_note(document, user_name, organization)
     return _to_buffer(document)
 
 
@@ -179,7 +181,7 @@ def university_docx(item, table: dict, prediction: dict, explanation: dict, note
 # Протокол обучения модели (Word)
 # --------------------------------------------------------------------------
 def experiment_docx(experiment, metrics: dict, params: dict, history: list, model_title: str,
-                    user_name: str) -> io.BytesIO:
+                    user_name: str, organization: str = "") -> io.BytesIO:
     document = _new_document("Протокол обучения модели", f"Эксперимент №{experiment.id}. {experiment.name}")
     _heading(document, "1. Общие сведения")
     _table(document, ["Параметр", "Значение"], [
@@ -220,7 +222,7 @@ def experiment_docx(experiment, metrics: dict, params: dict, history: list, mode
         plots.to_png(plots.learning_curves(history, metrics.get("best_epoch")), image, dpi=160)
         image.seek(0)
         document.add_picture(image, width=Cm(16))
-    _footer_note(document, user_name)
+    _footer_note(document, user_name, organization)
     return _to_buffer(document)
 
 
@@ -228,7 +230,8 @@ def experiment_docx(experiment, metrics: dict, params: dict, history: list, mode
 # Сводная записка по прогнозу (Word)
 # --------------------------------------------------------------------------
 def summary_docx(target_year: int, counts: list, by_district: list, decline: list, growth: list,
-                 model_line: str, user_name: str) -> io.BytesIO:
+                 model_line: str, user_name: str, organization: str = "", risk: tuple = None) -> io.BytesIO:
+    """risk — пара (порог вероятности зоны риска, число организаций с вероятностью не ниже порога)."""
     document = _new_document("Сводная аналитическая записка",
                              f"Прогноз результатов мониторинга эффективности вузов на {target_year} год")
     total = sum(counts) or 1
@@ -237,6 +240,10 @@ def summary_docx(target_year: int, counts: list, by_district: list, decline: lis
         f"Прогноз построен для {sum(counts)} головных образовательных организаций. {model_line}")
     _table(document, ["Класс результативности", "Организаций", "Доля"],
            [(name, count, _pct(count / total)) for name, count in zip(CLASS_NAMES, counts)], widths=[7, 4, 4])
+    if risk:
+        document.add_paragraph()
+        document.add_paragraph(f"Вероятность попадания в зону риска не ниже {_pct(risk[0])} — "
+                               f"у {risk[1]} организаций (порог задан в настройках системы).")
     _heading(document, "2. Распределение по федеральным округам")
     _table(document, ["Федеральный округ"] + list(CLASS_NAMES) + ["Всего"],
            [[row["name"]] + row["counts"] + [sum(row["counts"])] for row in by_district],
@@ -250,7 +257,7 @@ def summary_docx(target_year: int, counts: list, by_district: list, decline: lis
                      _pct(row["confidence"])) for row in rows], widths=[6.5, 3.5, 2.3, 2.3, 2.2], font_size=9)
         else:
             document.add_paragraph("Таких организаций нет.")
-    _footer_note(document, user_name)
+    _footer_note(document, user_name, organization)
     return _to_buffer(document)
 
 

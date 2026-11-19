@@ -9,10 +9,10 @@
 import json
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-from vuzmon.db.models import AnalystNote, AuditLog, Experiment, FederalDistrict, Region, University
-from vuzmon.db.session import get_session
+from vuzmon.db.models import AnalystNote, AuditLog, Experiment, FederalDistrict, University
+from vuzmon.db.session import get_number_setting, get_session, get_setting
 from webapp import security
 from webapp.services import exporters, jobs, queries, store
 from webapp.views_main import explain_prediction
@@ -35,29 +35,22 @@ def _prepared(db):
     return store.prepared(dataset.location)
 
 
+def _risk_threshold(db) -> float:
+    """Порог вероятности зоны риска из настроек системы."""
+    return get_number_setting(db, "risk_threshold", 0.5, 0.05, 0.95)
+
+
+def _organization(db) -> str:
+    """Название организации для подписи формируемых документов (настройка organization_name)."""
+    return get_setting(db, "organization_name")
+
+
 def _forecast_rows(db, args) -> tuple:
     """Строки прогноза с учётом фильтров страницы «Прогноз»."""
     predictions = queries.latest_predictions(db)
     prepared = _prepared(db)
     current = queries.current_classes(prepared) if prepared else {}
-    query = select(University).join(Region, Region.id == University.region_id) \
-        .where(University.id.in_(list(predictions) or [-1]))
-    search = args.get("q", "").strip()
-    if search:
-        query = query.where(queries.name_filter(search))
-    if args.get("district", "").isdigit():
-        query = query.where(Region.district_id == int(args["district"]))
-    rows = []
-    for item in db.scalars(query):
-        prediction = predictions[item.id]
-        now_class = current.get(item.id)
-        change = 0 if now_class is None else prediction["predicted_class"] - now_class
-        if args.get("predicted") in ("0", "1", "2") and prediction["predicted_class"] != int(args["predicted"]):
-            continue
-        if (args.get("change") == "down" and change >= 0) or (args.get("change") == "up" and change <= 0) \
-                or (args.get("change") == "same" and change != 0):
-            continue
-        rows.append({"item": item, "prediction": prediction, "current": now_class, "change": change})
+    rows = queries.forecast_rows(db, args, predictions, current, _risk_threshold(db))
     rows.sort(key=lambda row: row["prediction"]["probabilities"][0], reverse=True)
     return rows, predictions
 
@@ -106,7 +99,7 @@ def university_docx(university_id: int):
     explanation = explain_prediction(db, _prepared(db), university_id) if prediction else {}
     notes = db.scalars(select(AnalystNote).where(AnalystNote.university_id == university_id)
                        .order_by(AnalystNote.created_at.desc())).all()
-    buffer = exporters.university_docx(item, table, prediction, explanation, notes, _user_name())
+    buffer = exporters.university_docx(item, table, prediction, explanation, notes, _user_name(), _organization(db))
     security.audit("report_university", f"Сформирована справка по организации {item.short_name}")
     return send_file(buffer, mimetype=DOCX, as_attachment=True, download_name=f"spravka_{item.id}.docx")
 
@@ -158,8 +151,10 @@ def summary_docx():
         model_line = f"Использована модель №{experiment.id} «{experiment.name}»" + (
             f"; доля верных прогнозов на проверочном годе — {test['accuracy'] * 100:.1f} %.".replace(".", ",", 1)
             if test else ".")
+    threshold = _risk_threshold(db)
     buffer = exporters.summary_docx(first["target_year"], counts, by_district, movers(-1), movers(1),
-                                    model_line, _user_name())
+                                    model_line, _user_name(), _organization(db),
+                                    risk=(threshold, queries.risk_count(predictions, threshold)))
     security.audit("report_summary", "Сформирована сводная записка по прогнозу")
     return send_file(buffer, mimetype=DOCX, as_attachment=True,
                      download_name=f"svodnaya_zapiska_{first['target_year']}.docx")
@@ -177,7 +172,8 @@ def experiment_docx(experiment_id: int):
                 "train_metric": e.train_metric, "val_metric": e.val_metric} for e in experiment.epochs]
     buffer = exporters.experiment_docx(
         experiment, json.loads(experiment.metrics_json or "{}"), json.loads(experiment.params_json or "{}"),
-        history, jobs.MODEL_TYPES.get(experiment.model_type, experiment.model_type), _user_name())
+        history, jobs.MODEL_TYPES.get(experiment.model_type, experiment.model_type), _user_name(),
+        _organization(db))
     security.audit("report_experiment", f"Сформирован протокол обучения эксперимента №{experiment.id}")
     return send_file(buffer, mimetype=DOCX, as_attachment=True,
                      download_name=f"protokol_obucheniya_{experiment.id}.docx")

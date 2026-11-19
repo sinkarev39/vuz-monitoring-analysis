@@ -119,6 +119,43 @@ def latest_predictions(db, base_year: int = None) -> dict:
     return result
 
 
+def forecast_rows(db, args, predictions: dict, current: dict, risk_threshold: float) -> list:
+    """
+    Строки таблицы прогноза с учётом условий отбора. Используется и страницей
+    «Прогноз», и выгрузкой в Excel, поэтому в файл попадает то же, что на экране.
+
+    args — параметры запроса: q (часть названия), district (код округа),
+    predicted (класс по прогнозу), change (down / up / same), risk (1 — только
+    организации, у которых вероятность зоны риска не ниже порога risk_threshold).
+    """
+    query = select(University).join(Region, Region.id == University.region_id) \
+        .where(University.id.in_(list(predictions) or [-1]))
+    search = args.get("q", "").strip()
+    if search:
+        query = query.where(name_filter(search))
+    if args.get("district", "").isdigit():
+        query = query.where(Region.district_id == int(args["district"]))
+    rows = []
+    for item in db.scalars(query):
+        prediction = predictions[item.id]
+        now_class = current.get(item.id)
+        change = 0 if now_class is None else prediction["predicted_class"] - now_class
+        if args.get("predicted") in ("0", "1", "2") and prediction["predicted_class"] != int(args["predicted"]):
+            continue
+        if (args.get("change") == "down" and change >= 0) or (args.get("change") == "up" and change <= 0) \
+                or (args.get("change") == "same" and change != 0):
+            continue
+        if args.get("risk") == "1" and prediction["probabilities"][0] < risk_threshold:
+            continue
+        rows.append({"item": item, "prediction": prediction, "current": now_class, "change": change})
+    return rows
+
+
+def risk_count(predictions: dict, risk_threshold: float) -> int:
+    """Число организаций, у которых вероятность зоны риска не ниже порога."""
+    return sum(1 for item in predictions.values() if item["probabilities"][0] >= risk_threshold)
+
+
 def current_classes(prepared, year: int = None) -> dict:
     """Фактический класс организаций в указанном (по умолчанию последнем) году мониторинга."""
     meta = prepared.samples.meta

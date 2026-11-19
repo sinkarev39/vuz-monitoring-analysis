@@ -12,12 +12,14 @@ import json
 import zipfile
 
 import pytest
+from docx import Document
+from openpyxl import load_workbook
 from sqlalchemy import select
 
 from tests.conftest import login
 from vuzmon.collect.crawler import DATASET_FILES
 from vuzmon.db.models import AuditLog, Experiment, FeedbackMessage, Prediction, Setting, University, User
-from vuzmon.db.session import get_number_setting, get_session
+from vuzmon.db.session import get_number_setting, get_session, init_db
 from webapp.forms import to_int
 from webapp.services import jobs, store
 
@@ -324,6 +326,44 @@ def test_settings_are_validated(client):
     finally:
         db.get(Setting, "records_per_page").value = before["records_per_page"]
         db.commit()
+
+
+def test_settings_take_effect(client):
+    # Недочёт: название организации, порог зоны риска и квантиль нетипичности в настройках ни на что не влияли
+    login(client)
+    db = get_session()
+    # Настройка «последний год мониторинга» ничем не управляла: при запуске системы она удаляется из базы
+    db.add(Setting(key="base_year", value="2025", title="Последний год мониторинга"))
+    db.commit()
+    init_db()
+    db = get_session()
+    before = {row.key: row.value for row in db.scalars(select(Setting))}
+    assert "base_year" not in before and "base_year" not in client.get("/admin/settings").get_data(as_text=True)
+    risks = [json.loads(p.probabilities_json)[0] for p in db.scalars(select(Prediction))]
+    assert risks                                           # прогноз построен в сквозном сценарии выше
+
+    def rows_in_excel(query: str) -> int:
+        return load_workbook(io.BytesIO(client.get(f"/reports/forecast.xlsx{query}").data)).active.max_row
+
+    try:
+        counts = []
+        for threshold in ("0.05", "0.6"):
+            client.post("/admin/settings", data={"risk_threshold": threshold})
+            expected = sum(1 for value in risks if value >= float(threshold))
+            page = client.get("/forecast?risk=1").get_data(as_text=True)
+            assert f"у <b>{expected}</b> организаций" in page and f"Организаций в выборке: <b>{expected}</b>" in page
+            assert rows_in_excel("") - rows_in_excel("?risk=1") == len(risks) - expected    # в файле тот же отбор
+            counts.append(expected)
+        assert counts[0] > counts[1]
+
+        client.post("/admin/settings", data={"organization_name": "Проверочный университет", "anomaly_quantile": "0.9"})
+        summary = Document(io.BytesIO(client.get("/reports/summary.docx").data))
+        text = " ".join(paragraph.text for paragraph in summary.paragraphs)
+        assert "(Проверочный университет)" in text and f"не ниже 60,0 % — у {counts[1]} организаций" in text
+        assert 'name="anomaly_quantile" value="0.9"' in client.get("/models/new").get_data(as_text=True)
+    finally:
+        client.post("/admin/settings", data={key: before[key] for key in ("risk_threshold", "organization_name",
+                                                                         "anomaly_quantile")})
 
 
 def test_feedback_form_validates_input(client):

@@ -36,14 +36,19 @@ DEFAULT_USERS = [
 
 # Настройки системы: ключ, значение по умолчанию, пояснение для панели настроек
 DEFAULT_SETTINGS = [
-    ("organization_name", "Московский университет имени С.Ю. Витте", "Название организации в отчётах"),
+    ("organization_name", "Московский университет имени С.Ю. Витте",
+     "Название организации в формируемых документах"),
     ("home_university_id", "", "Код «своей» организации на сайте мониторинга (для сравнения)"),
-    ("base_year", "2025", "Последний год мониторинга, по которому есть данные"),
     ("records_per_page", "25", "Число строк на странице в списках"),
-    ("risk_threshold", "0.5", "Порог вероятности для включения организации в зону риска"),
-    ("anomaly_quantile", "0.95", "Квантиль ошибки восстановления, выше которого запись считается нетипичной"),
+    ("risk_threshold", "0.5", "Порог вероятности зоны риска: отбор в разделе «Прогноз» и в сводной записке"),
+    ("anomaly_quantile", "0.95",
+     "Квантиль ошибки восстановления для порога нетипичности (при обучении автокодировщика)"),
     ("collector_interval", "0.25", "Пауза между запросами к сайту мониторинга, с"),
 ]
+
+# Настройки прежних версий, которые ни на что не влияли: при запуске удаляются из базы.
+# Последний год мониторинга система определяет по самому набору данных
+OBSOLETE_SETTINGS = ("base_year",)
 
 
 def hash_password(password: str) -> str:
@@ -99,10 +104,15 @@ def init_db(url: str = None) -> None:
                 session.add(User(login=login, password_hash=hash_password(password), full_name=full_name,
                                  role_id=roles[role_code].id, position=position))
 
-        existing_keys = set(session.scalars(select(Setting.key)))
+        existing = {setting.key: setting for setting in session.scalars(select(Setting))}
         for key, value, title in DEFAULT_SETTINGS:
-            if key not in existing_keys:
+            if key not in existing:
                 session.add(Setting(key=key, value=value, title=title))
+            elif existing[key].title != title:
+                existing[key].title = title          # пояснение уточнено в новой версии системы
+        for key in OBSOLETE_SETTINGS:
+            if key in existing:
+                session.delete(existing[key])
         session.commit()
     finally:
         session.close()

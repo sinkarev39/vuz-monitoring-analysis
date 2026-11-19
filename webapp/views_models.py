@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from vuzmon import config
 from vuzmon.db.models import Experiment, Prediction
-from vuzmon.db.session import get_session
+from vuzmon.db.session import get_number_setting, get_session
 from vuzmon.ml import explain, plots, registry
 from vuzmon.ml.dataset import CLASS_NAMES
 from vuzmon.ml.pipeline import SEARCH_SPACE
@@ -96,6 +96,8 @@ def new():
     db = get_session()
     dataset = store.active_dataset(db)
     defaults = TrainConfig()
+    # Квантиль порога нетипичности по умолчанию задаётся администратором в настройках системы
+    quantile = get_number_setting(db, "anomaly_quantile", 0.95, 0.5, 0.999)
     if request.method == "POST":
         if dataset is None or not store.dataset_is_complete(dataset.location):
             flash("Нет рабочего набора данных. Загрузите данные в разделе «Данные».", "error")
@@ -126,7 +128,7 @@ def new():
         if model_type == "autoencoder":
             params.update(latent_dim=_number(form, "latent_dim", 8, int, 2, 64),
                           n_clusters=_number(form, "n_clusters", 5, int, 2, 12),
-                          anomaly_quantile=_number(form, "anomaly_quantile", 0.95, float, 0.5, 0.999))
+                          anomaly_quantile=_number(form, "anomaly_quantile", quantile, float, 0.5, 0.999))
         if model_type == "search":
             params["n_trials"] = _number(form, "n_trials", 15, int, 2, 60)
         name = form.get("name", "").strip() or jobs.MODEL_TYPES[model_type]
@@ -140,7 +142,7 @@ def new():
         return redirect(url_for("models.detail", experiment_id=experiment.id))
     return render_template("model_new.html", crumbs=[("Модели", url_for("models.index")), ("Новое обучение", None)],
                            defaults=defaults, model_types=jobs.MODEL_TYPES, dataset=dataset,
-                           search_space=SEARCH_SPACE)
+                           search_space=SEARCH_SPACE, anomaly_quantile=quantile)
 
 
 @bp.route("/<int:experiment_id>")

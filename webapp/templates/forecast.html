@@ -30,6 +30,8 @@
   <div class="card kpi"><div class="value">{{ base_year }}</div><div class="label">год исходных данных</div>
     <div class="hint muted">построен {{ built_at|dt }}{% if experiment %}, модель №{{ experiment.id }}{% endif %}</div></div>
 </div>
+<p class="muted small">Вероятность зоны риска не ниже {{ risk_threshold|pct }} — у <b>{{ at_risk }}</b> организаций
+  (<a href="{{ url_for('forecast.index', risk=1) }}">показать их</a>). Порог задаётся администратором в настройках системы.</p>
 
 <div class="card">
   <form method="get">
@@ -47,6 +49,9 @@
           <option value="down" {{ 'selected' if filters.get('change') == 'down' }}>ожидается снижение</option>
           <option value="up" {{ 'selected' if filters.get('change') == 'up' }}>ожидается рост</option>
           <option value="same" {{ 'selected' if filters.get('change') == 'same' }}>без изменений</option></select></div>
+      <div class="field"><label for="risk">Вероятность зоны риска</label>
+        <select id="risk" name="risk"><option value="">любая</option>
+          <option value="1" {{ 'selected' if filters.get('risk') == '1' }}>не ниже {{ risk_threshold|pct }}</option></select></div>
       <div class="field"><label for="sort">Сортировка</label>
         <select id="sort" name="sort">
           <option value="risk" {{ 'selected' if filters.get('sort', 'risk') == 'risk' }}>по вероятности риска</option>
