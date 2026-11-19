@@ -175,4 +175,5 @@ def profile():
 @security.login_required
 def help_page():
     """Справка по системе со сведениями об авторе."""
-    return render_template("help.html", crumbs=[("Справка", None)], version=__version__)
+    return render_template("help.html", crumbs=[("Справка", None)], version=__version__,
+                           attempts=MAX_FAILED_LOGINS, minutes=LOCK_MINUTES)
