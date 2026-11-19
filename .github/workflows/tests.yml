@@ -1,0 +1,75 @@
+# Автоматическая проверка при каждой отправке изменений в репозиторий.
+# На чистой машине выполняются шаги из README: установка библиотек, автоматические
+# тесты, запуск приложения командой «python main.py» и проверка основных сценариев
+# работы (вход под тремя ролями, прогноз, выгрузка документов).
+name: Тесты и проверка установки
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.os }}, Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.12" }
+    env:
+      # Сборка PyTorch для процессора: графический ускоритель системе не нужен
+      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+      # Русский текст в выводе программ, перенаправленном в файл (важно для Windows)
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Установка библиотек
+        run: pip install -r requirements.txt
+
+      - name: Автоматические тесты
+        run: python -m pytest tests -q
+
+      - name: Запуск приложения и проверка сценариев
+        shell: bash
+        run: |
+          python main.py > server.log 2>&1 &
+          server=$!
+          for attempt in $(seq 1 60); do
+            curl --silent --output /dev/null http://127.0.0.1:5000/login && break
+            sleep 2
+          done
+          status=0
+          python check_install.py --report protocol.md || status=$?
+          kill "$server" || true
+          exit "$status"
+
+      - name: Протокол проверки в сводке запуска
+        if: always()
+        shell: bash
+        run: |
+          if [ -f protocol.md ]; then cat protocol.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: protocol-${{ matrix.os }}-python${{ matrix.python }}
+          path: |
+            protocol.md
+            server.log
+          if-no-files-found: ignore
