@@ -39,6 +39,13 @@ MENU = [
 ]
 
 
+# Политика безопасности содержимого: страницы загружают сценарии, стили и изображения только с самого
+# сервера системы (графики — встроенные SVG, поэтому для стилей разрешены атрибуты style), формы
+# отправляются только на него же, а показ страниц во фрейме другого сайта запрещён
+CONTENT_SECURITY_POLICY = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                           "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+
+
 # Страницы, которых нет в меню, подсвечивают «родительский» пункт
 MENU_PARENTS = {"main.university": "main.universities", "forecast.what_if": "forecast.index"}
 
@@ -96,6 +103,19 @@ def create_app(database_url: str = None, testing: bool = False, bootstrap_data: 
     def _protect_forms():
         if not app.config["TESTING"]:
             security.check_csrf()
+
+    @app.after_request
+    def _security_headers(response):
+        """Заголовки ответа, которые защищают страницы системы в браузере пользователя."""
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")    # тип содержимого не угадывается
+        response.headers.setdefault("X-Frame-Options", "DENY")              # страницу нельзя встроить в чужой сайт
+        response.headers.setdefault("Referrer-Policy", "same-origin")       # адреса страниц не уходят наружу
+        response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        if request.endpoint != "static":
+            # Страницы с данными не остаются в кэше браузера: после выхода из системы
+            # их нельзя открыть кнопкой «Назад» на общем компьютере
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.teardown_appcontext
     def _close_session(_error=None):

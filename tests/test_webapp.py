@@ -126,6 +126,20 @@ def test_viewer_cannot_change_data(client):
     assert client.post(f"/universities/{university.id}", data={"text": "заметка"}).status_code == 403
 
 
+def test_responses_carry_security_headers(client):
+    # Недочёт: ответы не содержали защитных заголовков, закрытые страницы оставались в кэше браузера
+    for page in (client.get("/login"), client.get("/"), client.get("/нет-такой-страницы")):
+        assert page.headers["X-Content-Type-Options"] == "nosniff" and page.headers["X-Frame-Options"] == "DENY"
+        assert "frame-ancestors 'none'" in page.headers["Content-Security-Policy"]
+        assert page.headers["Cache-Control"] == "no-store"
+    login(client, "viewer", "Viewer#2026")
+    for url in ("/", "/forecast", "/reports/forecast.xlsx"):
+        assert client.get(url).headers["Cache-Control"] == "no-store", url
+    styles = client.get("/static/css/app.css")           # оформление и сценарии кэшировать можно
+    assert styles.status_code == 200 and "no-store" not in styles.headers.get("Cache-Control", "")
+    assert styles.headers["X-Content-Type-Options"] == "nosniff"
+
+
 def test_csrf_protection_is_enforced_outside_tests(app):
     app.config["TESTING"] = False
     try:
