@@ -20,6 +20,7 @@ import joblib
 from sqlalchemy import delete
 
 from vuzmon import config
+from vuzmon.collect import remote, validation
 from vuzmon.collect.crawler import MonitoringCrawler, records_to_frames, save_frames
 from vuzmon.collect.http_client import CachedHttpClient
 from vuzmon.db.loader import load_monitoring_frames
@@ -285,6 +286,44 @@ def _collect_job(report, years: list, user_id: int, load_to_db: bool, limit: int
 def start_collect(years: list, user_id: int, load_to_db: bool = True, limit: int = None) -> str:
     """Запускает сбор данных с сайта мониторинга в фоне."""
     return _start("collect", _collect_job, years, user_id, load_to_db, limit)
+
+
+# --------------------------------------------------------------------------
+# Загрузка набора данных по ссылке
+# --------------------------------------------------------------------------
+def _download_job(report, url: str, user_id: int, name: str = "") -> None:
+    """
+    Скачивает набор данных по ссылке, проверяет его и добавляет в перечень наборов.
+    Рабочим такой набор не становится: это отдельное действие в разделе «Данные».
+    """
+    db = get_session_factory()()
+    frames = remote.load_frames_from_url(
+        url, progress=lambda done, total, message: report(f"Загрузка по ссылке: {message}", 0.9 * done / max(total, 1)))
+    report("Проверка набора данных", 0.92)
+    problems = validation.check_frames(frames)
+    if problems:
+        raise ValueError("в файлах найдены ошибки. " + ". ".join(problems[:3]))
+    directory = store.new_dataset_directory("link")
+    save_frames(frames, directory)
+    years = sorted(int(year) for year in frames["institutions"]["year"].unique())
+    dataset = Dataset(name=(name or f"Загрузка по ссылке от {datetime.now():%d.%m.%Y %H:%M}")[:128], source="link",
+                      location=store.relative(directory), years=", ".join(map(str, years)),
+                      rows_count=len(frames["institutions"]), created_by=user_id,
+                      description=f"Загружено по ссылке: {remote.normalize_url(url)}"[:1000])
+    db.add(dataset)
+    db.commit()
+    db.add(AuditLog(user_id=user_id, action="dataset_link",
+                    details=f"Набор данных №{dataset.id} «{dataset.name}» загружен по ссылке {remote.normalize_url(url)}"))
+    db.commit()
+    report(f"Готово: набор данных №{dataset.id} загружен по ссылке, записей об организациях — {dataset.rows_count}", 1.0)
+
+
+def start_download(url: str, user_id: int, name: str = "") -> str:
+    """
+    Запускает загрузку набора данных по ссылке в фоне. Задача относится к тому же
+    виду, что и сбор с сайта: одновременно выполняется одна операция получения данных.
+    """
+    return _start("collect", _download_job, url, user_id, name)
 
 
 # --------------------------------------------------------------------------

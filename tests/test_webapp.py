@@ -19,6 +19,7 @@ from sqlalchemy import select
 
 from tests.conftest import login
 from vuzmon import config
+from vuzmon.collect import remote
 from vuzmon.collect.crawler import DATASET_FILES
 from vuzmon.db.models import (AuditLog, Dataset, Experiment, FeedbackMessage, Prediction, Setting, University,
                               User)
@@ -241,6 +242,53 @@ def _upload_dataset(client, frames: dict, name: str) -> int:
                            content_type="multipart/form-data")
     assert response.status_code == 302
     return int(response.headers["Location"].rsplit("/", 1)[1])
+
+
+def test_dataset_is_loaded_by_link_in_data_section(client, small_frames, monkeypatch):
+    # Требование задания: данные можно получить напрямую по ссылке — теперь и из раздела «Данные»
+    viewer = client.application.test_client()
+    login(viewer, "viewer", "Viewer#2026")
+    assert viewer.post("/data/link", data={"url": config.DATASET_URL}).status_code == 403
+    login(client, "analyst", "Analyst#2026")
+    page = client.get("/data/").get_data(as_text=True)
+    assert "Загрузить по ссылке" in page and config.DATASET_URL in page       # адрес опубликованного набора подставлен
+    wrong = client.post("/data/link", data={"url": "ftp://example.org/set"}, follow_redirects=True)
+    assert "должна начинаться с http:// или https://" in wrong.get_data(as_text=True)
+
+    # Скачивание подменено: файлы «приходят» из уменьшенного набора, фоновая задача выполняется сразу
+    contents = {filename: small_frames[table].to_csv(index=False).encode("utf-8")
+                for table, filename in DATASET_FILES.items()}
+    requested = []
+
+    def download(url, timeout=60.0, progress=None):
+        requested.append(url)
+        return contents
+    monkeypatch.setattr(remote, "download_dataset", download)
+    monkeypatch.setattr(jobs, "_start", lambda kind, target, *args: target(lambda *a: None, *args))
+    db = get_session()
+    working_id = store.active_dataset(db).id
+    before = {dataset.id for dataset in db.scalars(select(Dataset))}
+    response = client.post("/data/link", data={"url": config.DATASET_URL, "name": "набор по ссылке"})
+    assert response.status_code == 302 and requested == [config.DATASET_URL]
+    db.expire_all()
+    created = [dataset for dataset in db.scalars(select(Dataset)) if dataset.id not in before]
+    assert len(created) == 1 and created[0].source == "link"
+    assert created[0].rows_count == len(small_frames["institutions"]) and config.DATASET_URL in created[0].description
+    assert store.dataset_is_complete(created[0].location)
+    assert store.active_dataset(db).id == working_id                          # рабочий набор остаётся прежним
+    listing = client.get("/data/").get_data(as_text=True)
+    assert "набор по ссылке" in listing and "<td>ссылка</td>" in listing
+    assert client.get(f"/data/{created[0].id}").status_code == 200
+
+    # Набор с ошибками в значениях по ссылке не принимается и в перечень не попадает
+    wrong_main = small_frames["main"].astype({"e1": object})
+    wrong_main["e1"] = "много"
+    broken = dict(contents, **{DATASET_FILES["main"]: wrong_main.to_csv(index=False).encode("utf-8")})
+    monkeypatch.setattr(remote, "download_dataset", lambda url, timeout=60.0, progress=None: broken)
+    with pytest.raises(ValueError, match="в файлах найдены ошибки"):
+        jobs._download_job(lambda *a: None, config.DATASET_URL, None)
+    assert len(get_session().scalars(select(Dataset)).all()) == len(before) + 1
+    assert client.post(f"/data/{created[0].id}/delete").status_code == 302
 
 
 def test_new_dataset_does_not_replace_working_one(client, small_frames):

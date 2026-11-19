@@ -26,6 +26,8 @@ from webapp.services import jobs, store
 
 bp = Blueprint("data", __name__, url_prefix="/data")
 
+# Происхождение набора данных: код в базе -> название в перечне
+SOURCE_TITLES = {"site": "сайт мониторинга", "file": "файл", "link": "ссылка"}
 TABLE_TITLES = {"institutions": "Паспорта организаций", "main": "Основные показатели",
                 "medians": "Медианные значения", "extra": "Дополнительные характеристики",
                 "dictionary": "Справочник показателей"}
@@ -48,7 +50,8 @@ def index():
     job = jobs.latest_job("collect")
     return render_template("data.html", crumbs=[("Данные", None)], datasets=datasets, active=active, job=job,
                            years=list(range(2021, datetime.now().year + 1)),
-                           default_years=config.DEFAULT_YEARS, store=store)
+                           default_years=config.DEFAULT_YEARS, store=store, dataset_url=config.DATASET_URL,
+                           sources=SOURCE_TITLES)
 
 
 @bp.route("/collect", methods=["POST"])
@@ -60,13 +63,30 @@ def collect():
         flash("Выберите хотя бы один год мониторинга.", "error")
         return redirect(url_for("data.index"))
     if jobs.latest_job("collect").get("status") == "running":
-        flash("Сбор данных уже выполняется. Дождитесь его завершения.", "warning")
+        flash("Получение данных уже выполняется. Дождитесь его завершения.", "warning")
         return redirect(url_for("data.index"))
     limit = request.form.get("limit", "")
     jobs.start_collect(years, security.current_user().id, load_to_db=bool(request.form.get("load_to_db")),
                        limit=int(limit) if limit.isdigit() and int(limit) > 0 else None)
     security.audit("collect_start", f"Запущен сбор данных с сайта мониторинга за годы: {years}")
     flash("Сбор данных запущен. Ход выполнения отображается на этой странице.", "info")
+    return redirect(url_for("data.index"))
+
+
+@bp.route("/link", methods=["POST"])
+@security.roles_required(*security.ROLE_ANALYST)
+def link():
+    """Загрузка набора данных напрямую по ссылке (каталог с CSV-файлами или ZIP-архив)."""
+    url = request.form.get("url", "").strip()
+    if not url.lower().startswith(("http://", "https://")) or len(url) > 500:
+        flash("Укажите ссылку на набор данных: она должна начинаться с http:// или https://.", "error")
+        return redirect(url_for("data.index"))
+    if jobs.latest_job("collect").get("status") == "running":
+        flash("Получение данных уже выполняется. Дождитесь его завершения.", "warning")
+        return redirect(url_for("data.index"))
+    jobs.start_download(url, security.current_user().id, request.form.get("name", "").strip())
+    security.audit("dataset_link_start", f"Запущена загрузка набора данных по ссылке {url}")
+    flash("Загрузка по ссылке запущена. Ход выполнения отображается на этой странице.", "info")
     return redirect(url_for("data.index"))
 
 

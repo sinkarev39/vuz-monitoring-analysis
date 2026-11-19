@@ -5,20 +5,20 @@
 <div class="page-head">
   <div>
     <h1>Данные</h1>
-    <p class="lead">Наборы данных мониторинга: сбор с сайта, загрузка из файлов, просмотр и выгрузка. Рабочий набор используется для обучения моделей и прогноза.</p>
+    <p class="lead">Наборы данных мониторинга: сбор с сайта, загрузка из файлов и по ссылке, просмотр и выгрузка. Рабочий набор используется для обучения моделей и прогноза.</p>
   </div>
 </div>
 
 {% if job and job.status == 'running' %}
 <div class="card" data-poll-url="{{ url_for('data.job_state') }}">
-  <h2>Выполняется сбор данных</h2>
+  <h2>Выполняется получение данных</h2>
   <div class="progress"><i style="width: {{ (job.progress * 100)|round }}%"></i></div>
   <p class="poll-message muted" style="margin-top:8px">{{ job.message }}</p>
 </div>
 {% elif job and job.status == 'failed' %}
-<div class="flash error">Последний сбор данных завершился ошибкой. {{ job.message }}</div>
+<div class="flash error">Последнее получение данных завершилось ошибкой. {{ job.message }}</div>
 {% elif job and job.status == 'done' %}
-<div class="flash success">Сбор данных завершён. {{ job.message }}</div>
+<div class="flash success">Получение данных завершено. {{ job.message }}</div>
 {% endif %}
 
 <div class="card">
@@ -31,7 +31,7 @@
       <td><a href="{{ url_for('data.detail', dataset_id=row.id) }}">{{ row.name }}</a>
         {% if active and active.id == row.id %}<span class="badge ok">рабочий</span>{% endif %}
         {% if row.description %}<div class="muted small">{{ row.description }}</div>{% endif %}</td>
-      <td>{{ 'сайт мониторинга' if row.source == 'site' else 'файл' }}</td>
+      <td>{{ sources.get(row.source, row.source) }}</td>
       <td>{{ row.years }}</td>
       <td class="num">{{ row.rows_count|num }}</td>
       <td class="nowrap">{{ row.created_at|dt }}</td>
@@ -85,6 +85,20 @@
       <div class="form-row"><div class="field wide"><label for="description">Описание</label>
         <input type="text" id="description" name="description" maxlength="1000"></div></div>
       <button class="btn" type="submit">Загрузить</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Загрузить по ссылке</h2>
+    <p class="muted small">Адрес каталога с пятью CSV-файлами набора или адрес ZIP-архива с ними. По умолчанию указан
+      набор данных системы, опубликованный в её репозитории. Набор проверяется и добавляется в перечень;
+      рабочим он становится отдельным действием.</p>
+    <form method="post" action="{{ url_for('data.link') }}">{{ csrf() }}
+      <div class="form-row"><div class="field wide"><label for="url">Ссылка на набор данных</label>
+        <input type="url" id="url" name="url" value="{{ dataset_url }}" maxlength="500" required></div></div>
+      <div class="form-row"><div class="field wide"><label for="link-name">Название набора</label>
+        <input type="text" id="link-name" name="name" maxlength="128" placeholder="например: Набор из репозитория"></div></div>
+      <button class="btn" type="submit">Загрузить по ссылке</button>
     </form>
   </div>
 </div>
