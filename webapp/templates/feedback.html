@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Обратная связь{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Обратная связь</h1>
+    <p class="lead">Вопрос, сообщение об ошибке, замечание к данным или предложение по развитию системы.
+      Обращение получит администратор; ответ появится в списке ниже.</p>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h2>Новое обращение</h2>
+    <form method="post">
+      {{ csrf() }}
+      <div class="form-row">
+        <div class="field wide"><label for="category">Вид обращения</label>
+          <select id="category" name="category" required>
+            {% for code, title in categories.items() %}
+            <option value="{{ code }}" {{ 'selected' if form.category == code }}>{{ title }}</option>
+            {% endfor %}
+          </select></div>
+      </div>
+      <div class="form-row">
+        <div class="field wide"><label for="subject">Тема</label>
+          <input type="text" id="subject" name="subject" value="{{ form.subject }}" required
+                 minlength="{{ limits.subject[0] }}" maxlength="{{ limits.subject[1] }}"
+                 placeholder="Коротко: о чём обращение"></div>
+      </div>
+      <div class="form-row">
+        <div class="field wide"><label for="text">Текст обращения</label>
+          <textarea id="text" name="text" rows="6" required minlength="{{ limits.text[0] }}"
+                    maxlength="{{ limits.text[1] }}"
+                    placeholder="Опишите вопрос. Если это ошибка — на какой странице и после какого действия она возникла">{{ form.text }}</textarea>
+          <span class="hint">От {{ limits.text[0] }} до {{ limits.text[1] }} символов</span></div>
+      </div>
+      <button class="btn" type="submit">Отправить</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Кто получит обращение</h2>
+    <table class="data kv">
+      <tr><td>Отправитель</td><td><b>{{ user.full_name or user.login }}</b>
+        <span class="muted small">— {{ user.role.title }}</span></td></tr>
+      <tr><td>Электронная почта</td><td>{% if user.email %}{{ user.email }}{% else %}<span class="muted">не указана —
+        добавьте её в <a href="{{ url_for('auth.profile') }}">личном кабинете</a></span>{% endif %}</td></tr>
+      <tr><td>Получатель</td><td>Администратор системы</td></tr>
+    </table>
+    <h3>Что стоит написать</h3>
+    <table class="data">
+      {% for code, title in categories.items() %}
+      <tr><td><span class="badge outline wrap">{{ title }}</span></td>
+        <td class="muted">
+          {%- if code == 'question' %}Как выполнить действие, как понимать прогноз или оценку нетипичности.
+          {%- elif code == 'error' %}Страница не открывается, документ не формируется, расчёт завершается с ошибкой.
+          {%- elif code == 'data' %}Значение показателя расходится с первоисточником, у организации неверный регион.
+          {%- else %}Новый отчёт, фильтр или показатель, который помог бы в работе.{% endif -%}
+        </td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Мои обращения</h2>
+  <div class="table-wrap"><table class="data">
+    <tr><th>№</th><th>Дата</th><th>Вид</th><th>Тема и текст</th><th>Состояние</th><th>Ответ администратора</th></tr>
+    {% for row in rows %}
+    <tr><td>{{ row.id }}</td><td class="nowrap">{{ row.created_at|dt }}</td>
+      <td>{{ categories.get(row.category, row.category) }}</td>
+      <td><b>{{ row.subject }}</b><div class="muted prewrap">{{ row.text }}</div></td>
+      <td><span class="badge {{ {'new': 'warn', 'in_work': 'c2', 'closed': 'ok'}.get(row.status, 'off') }}">{{ statuses.get(row.status, row.status) }}</span></td>
+      <td>{% if row.reply %}<div class="prewrap">{{ row.reply }}</div>
+        <div class="muted small">{{ row.replied_at|dt }}</div>{% else %}<span class="muted">ответа пока нет</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted">Вы ещё не отправляли обращений.</td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}

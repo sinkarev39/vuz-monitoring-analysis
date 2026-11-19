@@ -37,6 +37,7 @@ p { margin: 0 0 10px; }
 .nowrap { white-space: nowrap; }
 .right { text-align: right; }
 .center { text-align: center; }
+.prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- каркас страницы ---------- */
 .layout { display: flex; min-height: 100vh; }
@@ -108,6 +109,7 @@ table.kv td:first-child { color: var(--muted); width: 38%; }
 .badge.warn { background: var(--warn); }
 .badge.off { background: #a8b2bf; }
 .badge.outline { background: #fff; color: var(--text); border: 1px solid var(--border); font-weight: 500; }
+.badge.wrap { white-space: normal; border-radius: 10px; }
 .pass { color: var(--ok); font-weight: 600; }
 .fail { color: var(--risk); font-weight: 600; }
 .bar { display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: #e9edf2; min-width: 120px; }

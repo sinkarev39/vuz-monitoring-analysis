@@ -34,6 +34,7 @@ MENU = [
     ("reports.index", "Отчёты", "▦", security.ROLE_ANY),
     ("admin.users", "Администрирование", "⚿", security.ROLE_ADMIN),
     ("auth.profile", "Личный кабинет", "☺", security.ROLE_ANY),
+    ("feedback.index", "Обратная связь", "✉", security.ROLE_ANY),
     ("auth.help_page", "Справка", "?", security.ROLE_ANY),
 ]
 
@@ -138,11 +139,12 @@ def create_app(database_url: str = None, testing: bool = False, bootstrap_data: 
     from webapp.views_admin import bp as admin_bp
     from webapp.views_auth import bp as auth_bp
     from webapp.views_data import bp as data_bp
+    from webapp.views_feedback import bp as feedback_bp
     from webapp.views_forecast import bp as forecast_bp
     from webapp.views_main import bp as main_bp
     from webapp.views_models import bp as models_bp
     from webapp.views_reports import bp as reports_bp
-    for blueprint in (auth_bp, main_bp, data_bp, models_bp, forecast_bp, reports_bp, admin_bp):
+    for blueprint in (auth_bp, main_bp, data_bp, models_bp, forecast_bp, reports_bp, feedback_bp, admin_bp):
         app.register_blueprint(blueprint)
 
     if bootstrap_data:
