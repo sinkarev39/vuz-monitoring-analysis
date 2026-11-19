@@ -3,8 +3,8 @@
 Автор: Шинкарев Сергей Дмитриевич, группа о.ИЗДт 23.2/Б3-22
 Тема ВКР: «Разработка системы интеллектуального анализа данных мониторинга вузов»
 
-Панель администратора: пользователи, журнал действий, настройки системы,
-сведения о состоянии базы данных и файлов.
+Панель администратора: пользователи, обращения пользователей (обратная связь),
+журнал действий, настройки системы, сведения о состоянии базы данных и файлов.
 """
 
 import platform
@@ -16,17 +16,18 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, s
 from sqlalchemy import func, select, text
 
 from vuzmon import __version__, config
-from vuzmon.db.models import AuditLog, Base, Role, Setting, University, User
+from vuzmon.db.models import AuditLog, Base, FeedbackMessage, Role, Setting, University, User
 from vuzmon.db.session import get_engine, get_session, hash_password
 from webapp import security
 from webapp.views_auth import password_problem
+from webapp.views_feedback import CATEGORIES, STATUSES, TEXT_MAX
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 # Вкладки панели администратора
-TABS = [("admin.users", "Пользователи"), ("admin.audit", "Журнал действий"),
-        ("admin.settings", "Настройки"), ("admin.system", "Состояние системы"),
-        ("admin.roles", "Роли и права")]
+TABS = [("admin.users", "Пользователи"), ("admin.feedback", "Обращения"),
+        ("admin.audit", "Журнал действий"), ("admin.settings", "Настройки"),
+        ("admin.system", "Состояние системы"), ("admin.roles", "Роли и права")]
 
 # Библиотеки, версии которых показываются на странице состояния системы
 LIBRARIES = ["flask", "sqlalchemy", "torch", "numpy", "pandas", "scikit-learn", "matplotlib",
@@ -37,11 +38,13 @@ PERMISSIONS = [
     ("Просмотр обзора, организаций, прогноза, нетипичных профилей", ("admin", "analyst", "viewer")),
     ("Сравнение организаций, расчёт «что будет, если…»", ("admin", "analyst", "viewer")),
     ("Выгрузка справок и таблиц прогноза (Word, Excel)", ("admin", "analyst", "viewer")),
+    ("Отправка обращений администратору (обратная связь)", ("admin", "analyst", "viewer")),
     ("Заметки к организациям", ("admin", "analyst")),
     ("Сбор, загрузка и выгрузка наборов данных", ("admin", "analyst")),
     ("Обучение моделей, подбор гиперпараметров, выбор рабочей модели", ("admin", "analyst")),
     ("Построение и обновление прогноза", ("admin", "analyst")),
     ("Управление пользователями и ролями", ("admin",)),
+    ("Ответы на обращения пользователей", ("admin",)),
     ("Просмотр и выгрузка журнала действий", ("admin",)),
     ("Изменение настроек системы, резервная копия базы данных", ("admin",)),
 ]
@@ -118,6 +121,53 @@ def user_form(user_id: int = None):
             flash("Учётная запись сохранена.", "success")
             return redirect(url_for("admin.users"))
     return _render("admin_user_form.html", "Учётная запись", item=item, roles=roles)
+
+
+# --------------------------------------------------------------------------
+# Обращения пользователей (обратная связь)
+# --------------------------------------------------------------------------
+@bp.route("/feedback")
+@security.roles_required(*security.ROLE_ADMIN)
+def feedback():
+    """Обращения пользователей с отбором по состоянию; новые показываются первыми."""
+    db = get_session()
+    status = request.args.get("status", "")
+    query = select(FeedbackMessage)
+    if status in STATUSES:
+        query = query.where(FeedbackMessage.status == status)
+    # Порядок: новые, затем взятые в работу, затем закрытые; внутри группы — свежие сверху
+    order = {code: number for number, code in enumerate(STATUSES)}
+    rows = sorted(db.scalars(query).all(), key=lambda row: (order.get(row.status, 9), -row.id))
+    counts = dict(db.execute(select(FeedbackMessage.status, func.count()).group_by(FeedbackMessage.status)).all())
+    return _render("admin_feedback.html", "Обращения", rows=rows, counts=counts, status=status,
+                   categories=CATEGORIES, statuses=STATUSES, text_max=TEXT_MAX)
+
+
+@bp.route("/feedback/<int:message_id>", methods=["POST"])
+@security.roles_required(*security.ROLE_ADMIN)
+def feedback_reply(message_id: int):
+    """Ответ на обращение и изменение его состояния."""
+    db = get_session()
+    item = db.get(FeedbackMessage, message_id)
+    if item is None:
+        abort(404)
+    reply = request.form.get("reply", "").strip()[:TEXT_MAX]
+    status = request.form.get("status", "")
+    if status not in STATUSES:
+        flash("Выберите состояние обращения.", "error")
+    elif status == "closed" and not reply:
+        flash("Чтобы закрыть обращение, напишите ответ пользователю.", "error")
+    else:
+        if reply != item.reply:
+            # Автор и время ответа обновляются только при изменении текста ответа
+            item.reply = reply
+            item.replied_by = security.current_user().id if reply else None
+            item.replied_at = datetime.now() if reply else None
+        item.status = status
+        db.commit()
+        security.audit("feedback_reply", f"Обращение № {item.id} от «{item.author.login}»: {STATUSES[status]}")
+        flash(f"Обращение № {item.id} сохранено.", "success")
+    return redirect(url_for("admin.feedback", status=request.args.get("status") or None))
 
 
 # --------------------------------------------------------------------------
