@@ -58,7 +58,9 @@ def prepare_data(frames: dict, include_branches: bool = False) -> PreparedData:
     preprocessor = TabularPreprocessor().fit(parts["train"].features)
     x = {name: preprocessor.transform(part.features) for name, part in parts.items()}
     y = {name: part.target.to_numpy(dtype=np.int64) for name, part in parts.items() if name != "future"}
-    aux = {name: part.aux_target.to_numpy(dtype=np.float32) for name, part in parts.items() if name != "future"}
+    # copy=True: без копии pandas отдаёт массив только для чтения, а PyTorch требует изменяемую память
+    aux = {name: part.aux_target.to_numpy(dtype=np.float32, copy=True)
+           for name, part in parts.items() if name != "future"}
     return PreparedData(samples, parts, preprocessor, x, y, preprocessor.feature_names, aux)
 
 
