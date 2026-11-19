@@ -43,20 +43,34 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Автоматические тесты
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q --junitxml=pytest.xml
+
+      # Число пройденных, пропущенных и упавших тестов — в аннотацию и сводку запуска
+      - name: Итог тестов
+        if: always()
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import os, platform, xml.etree.ElementTree as ET
+          suite = ET.parse("pytest.xml").getroot().find("testsuite")
+          total, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          failed = int(suite.get("failures")) + int(suite.get("errors"))
+          line = (f"Python {platform.python_version()}, {platform.system()}: пройдено {total - skipped - failed}, "
+                  f"пропущено {skipped}, упало {failed}, время {float(suite.get('time')):.0f} с")
+          print(f"::notice title=pytest::{line}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"**Автоматические тесты.** {line}\n\n")
+          EOF
 
       - name: Запуск приложения и проверка сценариев
         shell: bash
         run: |
           python main.py > server.log 2>&1 &
           server=$!
-          for attempt in $(seq 1 60); do
-            curl --silent --output /dev/null http://127.0.0.1:5000/login && break
-            sleep 2
-          done
           status=0
-          python check_install.py --report protocol.md || status=$?
+          python check_install.py --wait 120 --report protocol.md || status=$?
           kill "$server" || true
+          if [ -f protocol.md ]; then echo "::notice title=check_install::$(tail -n 1 protocol.md)"; fi
           exit "$status"
 
       - name: Протокол проверки в сводке запуска
